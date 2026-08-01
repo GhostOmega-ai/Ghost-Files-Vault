@@ -4,10 +4,25 @@ A mobile-first, privacy-focused file vault for the Ghost app ecosystem.
 
 ## Release
 
-**v0.1.7 — Folder Artwork Refresh**
+**v0.2.5 — Folder Organisation**
 
-This is the first clean-room Files Vault build. It is intentionally separated into focused files so future upgrades can replace only the area that changed.
+This focused release adds persistent custom-folder ordering while keeping Pinned permanently first and Private permanently last. The drag system is isolated in its own module so the main application controller stays readable.
 
+
+## v0.2.5 update
+
+- Keeps **Pinned** fixed in position 1
+- Keeps **Private** fixed in the final position
+- Adds a three-line movement handle to custom folders only
+- Adds mouse, trackpad and touch pointer dragging
+- Uses smooth FLIP-based swap animation, lift glow and snap transition
+- Saves custom-folder order in the existing IndexedDB `settings` store
+- Restores the saved order after refresh and future launches
+- Adds keyboard reordering with Arrow keys, Home and End
+- Adds `js/folder-order.js` so reordering logic is not layered into `app.js`
+- Preserves the compact folder workspace, direct-folder uploads and Premium Viewer v0.2.4
+
+Changed files: `js/app.js`, `js/folder-order.js`, `css/files.css`, `js/README.md`, and `README.md`.
 
 ## v0.1.7 update
 
@@ -98,10 +113,10 @@ Changed files: `index.html`, `css/files.css`, and `README.md`.
 ## Current features
 
 - Approved Ghost Files Vault logo with a true transparent background
-- `+ File` upload flow with destination-folder selection
-- `+ Album` custom folder creation
-- Permanent **Pinned** folder for important files
-- Permanent PIN-protected **Private** folder
+- `+ File` upload flow with direct upload inside an open folder and destination selection from Home
+- `+ Folder` custom folder creation
+- Permanent **Pinned** folder for important files, always fixed first
+- Permanent PIN-protected **Private** folder, always fixed last
 - Uploads any file type accepted by the browser
 - Local IndexedDB storage
 - Built-in viewer for:
@@ -113,6 +128,7 @@ Changed files: `index.html`, `css/files.css`, and `README.md`.
 - Safe fallback screen for formats the browser cannot render internally
 - Download, move and permanent delete controls
 - Search and sorting inside folders
+- Persistent drag-and-drop ordering for custom folders
 - Always-visible Home, Hide and Settings navigation
 - Responsive Android/PWA layout
 
@@ -137,6 +153,8 @@ Ghost-Files-Vault/
 ├── assets/
 │   ├── README.md
 │   ├── files-vault.png
+│   ├── folder.jpg
+│   ├── pinned-folder.jpg
 │   ├── secure-vault.png
 │   ├── home.png
 │   ├── hide.png
@@ -147,6 +165,7 @@ Ghost-Files-Vault/
 └── js/
     ├── README.md
     ├── app.js
+    ├── folder-order.js
     ├── db.js
     ├── utils.js
     └── viewer.js
@@ -157,6 +176,7 @@ Ghost-Files-Vault/
 - `index.html`: semantic page structure and dialogs
 - `css/files.css`: complete Files Vault appearance and responsive layout
 - `js/app.js`: application state, events, folder flows and file actions
+- `js/folder-order.js`: persistent folder ordering, drag interaction and FLIP animation
 - `js/db.js`: IndexedDB schema and persistence only
 - `js/viewer.js`: file-type detection and preview rendering only
 - `js/utils.js`: reusable formatting, identifiers, sorting and toast helpers
@@ -181,6 +201,7 @@ Every future update must:
 - Viewer support: upload `js/viewer.js` and the updated root `README.md`
 - Database change: upload `js/db.js`, any affected owner file, and the updated root `README.md`
 - Main behaviour: upload `js/app.js` and the updated root `README.md`
+- Folder ordering: upload `js/folder-order.js`, any affected owner files, and the updated root `README.md`
 - Artwork change: replace only the matching file in `assets/` plus the updated root `README.md`
 - Layout/dialog change: upload `index.html` plus the updated root `README.md`
 
@@ -199,7 +220,7 @@ assets/settings.png
 ## Data model
 
 Database: `ghost-files-vault`  
-Version: `1`
+Version: `2`
 
 Stores:
 
@@ -226,12 +247,37 @@ The initial system folder IDs are stable:
 
 The current Home and Settings destinations use relative Ghost routes:
 
-- Home: `../`
-- Settings: `../settings/`
+- Home: `../Ghost-Phoenix/`
+- Settings: currently displays a development toast until the final Ghost route is connected
 
 They can be changed later in `index.html` once the final Ghost repository routing is confirmed.
 
 ## Release history
+
+### v0.2.5 — Folder Organisation
+
+- Fixed Pinned first and Private last
+- Added custom-folder movement handles
+- Added persistent pointer and keyboard reordering
+- Isolated movement logic in `js/folder-order.js`
+
+### v0.2.4 — Premium Viewer
+
+- Added double-click, wheel, pinch and drag image gestures
+- Added smooth Viewer transitions and zoom reset
+
+### v0.2.3 — Ghost Viewer 2.0
+
+- Added Ghost viewer header, metadata, Rename, Pin, Move, Download and Delete actions
+
+### v0.2.2 — Folder Workspace
+
+- Replaced the repeated dashboard inside folders with a focused compact workspace
+
+### v0.2.1 — Upload UX
+
+- Uploads directly to the open folder and keeps the user in place
+
 
 ### v0.1.6 — Header Alignment
 

@@ -8,6 +8,11 @@ import {
   getSetting,
 } from "./db.js";
 import { fileIcon, fileTypeLabel, renderPreview, releasePreview } from "./viewer.js";
+import {
+  createFolderOrderController,
+  PINNED_ALBUM_ID,
+  PRIVATE_ALBUM_ID,
+} from "./folder-order.js";
 import { createId, formatBytes, formatDate, showToast, sortFiles } from "./utils.js";
 
 const state = {
@@ -80,6 +85,18 @@ const elements = {
   hideButton: document.querySelector("#hide-button"),
 };
 
+const folderOrder = createFolderOrderController({
+  grid: elements.albumGrid,
+  notify: showToast,
+  onOrderChange() {
+    state.albums = folderOrder.sort(state.albums);
+  },
+  async onSaveError() {
+    await refreshState();
+    renderAlbums();
+  },
+});
+
 async function init() {
   await seedSystemData();
   bindEvents();
@@ -123,8 +140,9 @@ function bindEvents() {
 }
 
 async function refreshState() {
-  [state.albums, state.files] = await Promise.all([getAlbums(), getFiles()]);
-  state.albums.sort((a, b) => a.createdAt - b.createdAt);
+  const [albums, files] = await Promise.all([getAlbums(), getFiles()]);
+  state.albums = await folderOrder.prepare(albums);
+  state.files = files;
   renderStorage();
 }
 
@@ -137,11 +155,11 @@ function renderStorage() {
 }
 
 function albumArtwork(album) {
-  if (album.id === "private") {
+  if (album.id === PRIVATE_ALBUM_ID) {
     return '<span class="album-card__icon" aria-hidden="true">🔐</span>';
   }
 
-  const source = album.id === "pinned"
+  const source = album.id === PINNED_ALBUM_ID
     ? "assets/pinned-folder.jpg"
     : "assets/folder.jpg";
 
@@ -149,6 +167,7 @@ function albumArtwork(album) {
 }
 
 function renderAlbums() {
+  folderOrder.cancel();
   state.selectionMode = false;
   state.selectedFileIds.clear();
 
@@ -165,18 +184,44 @@ function renderAlbums() {
   elements.viewTitle.textContent = "Your folders";
 
   for (const album of state.albums) {
-    const count = state.files.filter(file => file.albumId === album.id).length;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `album-card${album.id === "private" ? " album-card--private" : ""}`;
-    button.innerHTML = `
-      ${albumArtwork(album)}
-      <span class="album-card__name">${escapeHtml(album.name)}</span>
-      <span class="album-card__meta">${count} file${count === 1 ? "" : "s"}</span>
-    `;
-    button.addEventListener("click", () => requestOpenAlbum(album));
-    elements.albumGrid.append(button);
+    elements.albumGrid.append(createAlbumCard(album));
   }
+}
+
+
+function createAlbumCard(album) {
+  const count = state.files.filter(file => file.albumId === album.id).length;
+  const reorderable = folderOrder.isReorderable(album);
+  const card = document.createElement("article");
+
+  card.className = [
+    "album-card",
+    album.id === PINNED_ALBUM_ID ? "album-card--pinned" : "",
+    album.id === PRIVATE_ALBUM_ID ? "album-card--private" : "",
+    reorderable ? "album-card--reorderable" : "album-card--fixed",
+  ].filter(Boolean).join(" ");
+  card.dataset.albumId = album.id;
+  card.dataset.reorderable = String(reorderable);
+
+  const openButton = document.createElement("button");
+  openButton.type = "button";
+  openButton.className = "album-card__open";
+  openButton.setAttribute(
+    "aria-label",
+    `Open ${album.name} folder, ${count} file${count === 1 ? "" : "s"}`
+  );
+  openButton.innerHTML = `
+    ${albumArtwork(album)}
+    <span class="album-card__name">${escapeHtml(album.name)}</span>
+    <span class="album-card__meta">${count} file${count === 1 ? "" : "s"}</span>
+  `;
+  openButton.addEventListener("click", () => requestOpenAlbum(album));
+  card.append(openButton);
+
+  const dragHandle = folderOrder.createHandle(card, album);
+  if (dragHandle) card.append(dragHandle);
+
+  return card;
 }
 
 function requestOpenAlbum(album) {
@@ -223,7 +268,7 @@ function handleBack() {
 }
 
 function showVaultInfo() {
-  alert("Ghost File Vault v0.2.4\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
+  alert("Ghost File Vault v0.2.5\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
 }
 
 function renderFiles() {
@@ -409,8 +454,8 @@ async function createAlbum(event) {
 }
 
 function albumIcon(album) {
-  if (album.id === "private") return "🔒";
-  if (album.id === "pinned") return "📌";
+  if (album.id === PRIVATE_ALBUM_ID) return "🔒";
+  if (album.id === PINNED_ALBUM_ID) return "📌";
   return "📁";
 }
 
