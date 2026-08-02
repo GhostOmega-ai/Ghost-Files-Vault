@@ -1,9 +1,14 @@
 # JavaScript modules
 
-- `app.js` — app state, event wiring, folder flows and file actions
-- `folder-order.js` — fixed system-folder positions, persistent custom-folder ordering and drag/keyboard movement
-- `db.js` — IndexedDB schema and persistence
-- `viewer.js` — file preview, Viewer 2.0 and image gesture logic
-- `utils.js` — formatting, sorting and shared helpers
+- `app.js` — application state, event wiring and feature orchestration
+- `db.js` — IndexedDB schema, transactions and persistence
+- `document-viewer.js` — Ghost document rendering and searchable-text extraction
+- `file-card.js` — premium file-card creation, metadata and search highlighting
+- `file-order.js` — persistent custom ordering inside folders
+- `file-search.js` — metadata/content search, filters, cancellation, progress and cache
+- `file-types.js` — central file classification, labels and icons
+- `folder-order.js` — fixed Pinned/Private placement and custom-folder movement
+- `utils.js` — formatting, identifiers, sorting and shared helpers
+- `viewer.js` — viewer routing, image gestures and preview cleanup
 
-Modify the module that owns the requested behaviour. Remove superseded logic instead of stacking patches. Every JavaScript release must include the updated complete root `README.md`.
+Keep one owner for each responsibility. Remove superseded logic rather than stacking patches or duplicate listeners.

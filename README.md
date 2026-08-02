@@ -1,140 +1,62 @@
 # Ghost Files Vault
 
-A mobile-first, privacy-focused file vault for the Ghost app ecosystem.
+A mobile-first, privacy-focused document vault for the Ghost app ecosystem.
 
-## Release
+## Current release
 
-**v0.2.5 — Folder Organisation**
+**v0.2.9 — Advanced Search & Smart Filters**
 
-This focused release adds persistent custom-folder ordering while keeping Pinned permanently first and Private permanently last. The drag system is isolated in its own module so the main application controller stays readable.
+This release replaces the former filename-only search with one coordinated search system for file metadata, supported document contents, smart filters and expanded sorting. The search engine is isolated in `js/file-search.js`; obsolete inline search logic was removed from `app.js` rather than retained as a second implementation.
 
+## v0.2.9 highlights
 
-## v0.2.5 update
-
-- Keeps **Pinned** fixed in position 1
-- Keeps **Private** fixed in the final position
-- Adds a three-line movement handle to custom folders only
-- Adds mouse, trackpad and touch pointer dragging
-- Uses smooth FLIP-based swap animation, lift glow and snap transition
-- Saves custom-folder order in the existing IndexedDB `settings` store
-- Restores the saved order after refresh and future launches
-- Adds keyboard reordering with Arrow keys, Home and End
-- Adds `js/folder-order.js` so reordering logic is not layered into `app.js`
-- Preserves the compact folder workspace, direct-folder uploads and Premium Viewer v0.2.4
-
-Changed files: `js/app.js`, `js/folder-order.js`, `css/files.css`, `js/README.md`, and `README.md`.
-
-## v0.1.7 update
-
-- Replaced the basic normal-folder emoji with the approved neon folder artwork
-- Replaced the basic Pinned emoji with the approved neon pinned-folder artwork
-- Preserved the existing Private artwork, folder data, PIN protection, uploads and IndexedDB schema
-- Kept the update focused to the owning render function, folder-card CSS and two new assets
-
-Changed files: `js/app.js`, `css/files.css`, `assets/folder.jpg`, `assets/pinned-folder.jpg`, and `README.md`.
-
-## v0.1.1 update
-
-This focused repair changes only the files that own the affected behaviour:
-
-- `js/db.js` — repairs IndexedDB transaction completion handling
-- `js/app.js` — reports the real startup error if another fault occurs
-- `css/files.css` — aligns Hide with Home and Settings
-
-No HTML, viewer logic, utilities or assets are changed.
-
-## v0.1.2 update
-
-The Files Vault header now follows the approved Photo Vault layout:
-
-- Files Vault ghost logo on the left
-- `Files Vault` title on the right
-- live file count beneath the title
-- `+ File` and `+ Album` buttons directly underneath
-- compact local-storage indicator below the header
-- no oversized central logo or wasted empty header space
-
-Changed files:
-
-- `index.html`
-- `css/files.css`
-- `js/app.js`
-- `README.md`
-
-No database, viewer, utility or asset files are changed.
-
-## v0.1.3 update
-
-- Exact Photo Vault-style top bar with Back, `GHOST`, `File Vault`, and Information
-- Files logo, folder summary, `+ File`, and `+ Folder` in the hero card
-- Files, Folders, and Storage statistics underneath
-- Photo Vault-style permanent navigation
-- IndexedDB upgraded to version 2 so missing object stores are created and the startup error is repaired
-
-Changed files: `index.html`, `css/files.css`, `js/app.js`, `js/db.js`, and `README.md`.
-
-## v0.1.4 update
-
-The Create Folder dialog has been refined without changing any database or folder logic:
-
-- Replaced the basic browser-looking submit button with a full-width Ghost neon action
-- Added pressed-state feedback
-- Improved the folder-name input border, focus glow and spacing
-- Added `enterkeyhint="done"` so supported Android keyboards show a Done action
-- Enabled word capitalisation and spelling suggestions
-- Kept the operating-system keyboard unchanged, because websites cannot reskin Android/Gboard
-
-Changed files:
-
-- `index.html`
-- `css/files.css`
-- `README.md`
-
-## v0.1.5 update
-
-- Removed the top-right close icon
-- Added separate Cancel and Create buttons
-- Cancel is now `type="button"`, so it closes without triggering required-field validation
-- Create remains the only submit action
-- Added clean dialog-close event wiring
-
-Changed files: `index.html`, `css/files.css`, `js/app.js`, and `README.md`.
-
-## v0.1.6 update
-
-- Centred `GHOST` and `File Vault` against the full screen
-- Fixed the Back button to the far left
-- Fixed the Information button to the far right
-- Prevented the File Vault title from wrapping
-- Added a small-screen safeguard
-
-Changed files: `index.html`, `css/files.css`, and `README.md`.
+- Searches file names, extensions, type labels, MIME types, sizes and dates
+- Supports quoted phrases and case/accent-insensitive matching
+- Searches readable content inside supported PDFs, Word documents, spreadsheets, presentations, text, Markdown, JSON, code, markup and archives
+- Adds one-tap Ghost filter chips for PDF, Word, Sheets, Slides, Text & Code, Archives, Images, Media, Apps and Pinned
+- Adds date and size filters
+- Adds a switch for document-content search
+- Adds Custom, Recently opened, File type, Largest and Smallest sorting
+- Records the last-opened time when a file is viewed
+- Highlights matching words in file names
+- Marks results found through document contents
+- Shows live search progress and result counts
+- Keeps multi-select, bulk operations, custom file ordering, folder ordering, uploads and all viewers intact
+- Uses cancellation, concurrency limits, extraction timeouts and an in-memory cache to keep content searches responsive
 
 ## Current features
 
-- Approved Ghost Files Vault logo with a true transparent background
-- `+ File` upload flow with direct upload inside an open folder and destination selection from Home
-- `+ Folder` custom folder creation
-- Permanent **Pinned** folder for important files, always fixed first
-- Permanent PIN-protected **Private** folder, always fixed last
-- Uploads any file type accepted by the browser
-- Local IndexedDB storage
-- Built-in viewer for:
-  - Images
-  - Video
-  - Audio
-  - PDF
-  - Plain text and common code/data formats
-- Safe fallback screen for formats the browser cannot render internally
-- Download, move and permanent delete controls
-- Search and sorting inside folders
-- Persistent drag-and-drop ordering for custom folders
-- Always-visible Home, Hide and Settings navigation
-- Responsive Android/PWA layout
+### Folders and organisation
 
-## Important viewer limitation
+- Permanent **Pinned** folder fixed first
+- Permanent PIN-protected **Private** folder fixed last
+- Custom folder creation
+- Persistent drag-and-drop folder ordering
+- Direct upload into the currently open folder
+- Destination picker when uploading from the File Vault home screen
 
-A browser cannot natively render every possible format. Office documents, archives, APK files and other unsupported formats are still stored inside Ghost and can be moved, deleted and downloaded, but the built-in viewer displays a safe file-information fallback instead of pretending it can render them.
+### Files
+
+- Premium Ghost file cards with type-specific scalable icons
+- Long-filename containment and full-name reveal
+- Custom file ordering with drag handles
+- Multi-select, Select All and Clear All
+- Bulk Pin/Unpin, Move and Delete
+- Search, smart filters and expanded sorting
+
+### Viewer
+
+- Premium Ghost viewer shell
+- Rename, Pin/Unpin, Move, Download and Delete
+- Close using the button, Escape or the backdrop
+- Image double-click/double-tap zoom, wheel zoom, pinch zoom and drag while zoomed
+- Built-in viewing for PDF, DOCX/DOCM, spreadsheets, presentations, ODT/FODT, text, Markdown, JSON, HTML/XML, source code, RTF, ZIP/EPUB inspection and readable legacy DOC/PPT content
+
+### Storage
+
+- Local IndexedDB persistence
+- Database versioning and transaction helpers
+- Files remain local to the current browser/device until a future backup or sync feature is added
 
 ## Temporary Private PIN
 
@@ -142,7 +64,7 @@ A browser cannot natively render every possible format. Office documents, archiv
 1234
 ```
 
-The PIN is stored locally in IndexedDB. A later Settings release will add a PIN-changing interface.
+The PIN is stored locally in IndexedDB. PIN management belongs to a later whole-app security release.
 
 ## Structure
 
@@ -151,199 +73,58 @@ Ghost-Files-Vault/
 ├── index.html
 ├── README.md
 ├── assets/
-│   ├── README.md
-│   ├── files-vault.png
-│   ├── folder.jpg
-│   ├── pinned-folder.jpg
-│   ├── secure-vault.png
-│   ├── home.png
-│   ├── hide.png
-│   └── settings.png
 ├── css/
 │   ├── README.md
 │   └── files.css
 └── js/
     ├── README.md
     ├── app.js
-    ├── folder-order.js
     ├── db.js
+    ├── document-viewer.js
+    ├── file-card.js
+    ├── file-order.js
+    ├── file-search.js
+    ├── file-types.js
+    ├── folder-order.js
     ├── utils.js
     └── viewer.js
 ```
 
-## File ownership
+## Module ownership
 
-- `index.html`: semantic page structure and dialogs
-- `css/files.css`: complete Files Vault appearance and responsive layout
-- `js/app.js`: application state, events, folder flows and file actions
-- `js/folder-order.js`: persistent folder ordering, drag interaction and FLIP animation
-- `js/db.js`: IndexedDB schema and persistence only
-- `js/viewer.js`: file-type detection and preview rendering only
-- `js/utils.js`: reusable formatting, identifiers, sorting and toast helpers
-- `assets/`: approved artwork only
+- `index.html` — semantic page, search controls and dialogs
+- `css/files.css` — complete File Vault styling and responsive behaviour
+- `js/app.js` — application state, event wiring and feature orchestration
+- `js/db.js` — IndexedDB persistence only
+- `js/document-viewer.js` — document rendering and searchable-text extraction
+- `js/file-card.js` — premium file-card construction and search highlighting
+- `js/file-order.js` — persistent file ordering
+- `js/file-search.js` — metadata/content search, filters, progress and cache
+- `js/file-types.js` — single source of truth for file classification and icons
+- `js/folder-order.js` — fixed system-folder positions and custom-folder movement
+- `js/utils.js` — shared formatting, identifiers, sorting and toast helpers
+- `js/viewer.js` — viewer routing and image gesture lifecycle
 
 ## Clean update policy
 
-Every future update must:
+Every update must:
 
-1. Modify the owning file or function instead of layering a patch.
-2. Remove superseded code in the same release.
-3. Avoid duplicate selectors, listeners, database methods or replacement functions.
+1. Modify the owning module instead of layering a second implementation.
+2. Remove superseded selectors, listeners and functions in the same release.
+3. Avoid duplicate rendering, search, ordering or database logic.
 4. Preserve IndexedDB compatibility unless a documented migration is included.
-5. Upload only the files genuinely changed by the release.
-6. Replace the root `README.md` with the updated complete version.
-7. Keep all earlier release notes below the newest release notes.
-8. Test uploads, stored data, Private access, previews, movement and navigation before release.
-
-## Focused update examples
-
-- Styling only: upload `css/files.css` and the updated root `README.md`
-- Viewer support: upload `js/viewer.js` and the updated root `README.md`
-- Database change: upload `js/db.js`, any affected owner file, and the updated root `README.md`
-- Main behaviour: upload `js/app.js` and the updated root `README.md`
-- Folder ordering: upload `js/folder-order.js`, any affected owner files, and the updated root `README.md`
-- Artwork change: replace only the matching file in `assets/` plus the updated root `README.md`
-- Layout/dialog change: upload `index.html` plus the updated root `README.md`
-
-## Stable asset names
-
-Do not rename these without updating `index.html` or CSS:
-
-```text
-assets/files-vault.png
-assets/secure-vault.png
-assets/home.png
-assets/hide.png
-assets/settings.png
-```
-
-## Data model
-
-Database: `ghost-files-vault`  
-Version: `2`
-
-Stores:
-
-- `files`
-- `albums`
-- `settings`
-
-The initial system folder IDs are stable:
-
-- `pinned`
-- `private`
-
-## GitHub Pages installation
-
-1. Extract the ZIP.
-2. Upload the contents to the repository root.
-3. Ensure `index.html` is directly in the root.
-4. Open **Settings → Pages**.
-5. Choose **Deploy from a branch**.
-6. Select `main` and `/ (root)`.
-7. Save and wait for deployment.
-
-## Navigation note
-
-The current Home and Settings destinations use relative Ghost routes:
-
-- Home: `../Ghost-Phoenix/`
-- Settings: currently displays a development toast until the final Ghost route is connected
-
-They can be changed later in `index.html` once the final Ghost repository routing is confirmed.
+5. Ship only files genuinely changed by the release.
+6. Test uploads, Private access, search, sorting, selection, ordering and previews before release.
 
 ## Release history
 
-### v0.2.5 — Folder Organisation
-
-- Fixed Pinned first and Private last
-- Added custom-folder movement handles
-- Added persistent pointer and keyboard reordering
-- Isolated movement logic in `js/folder-order.js`
-
-### v0.2.4 — Premium Viewer
-
-- Added double-click, wheel, pinch and drag image gestures
-- Added smooth Viewer transitions and zoom reset
-
-### v0.2.3 — Ghost Viewer 2.0
-
-- Added Ghost viewer header, metadata, Rename, Pin, Move, Download and Delete actions
-
-### v0.2.2 — Folder Workspace
-
-- Replaced the repeated dashboard inside folders with a focused compact workspace
-
-### v0.2.1 — Upload UX
-
-- Uploads directly to the open folder and keeps the user in place
-
-
-### v0.1.6 — Header Alignment
-
-- Corrected the main header alignment
-- Anchored Back and Information to opposite edges
-- Kept the title perfectly centred
-- Changed only header structure and CSS
-
-
-### v0.1.5 — Create Folder Actions Fix
-
-- Replaced the close icon with Cancel and Create actions
-- Fixed the unwanted “Please fill in this field” message when cancelling
-- Preserved existing folder creation and database behaviour
-
-
-### v0.1.4 — Create Folder Dialog Polish
-
-- Added a Ghost-themed Create Folder action button
-- Improved input focus styling
-- Added mobile keyboard hints and word capitalisation
-- Changed only the dialog structure and owning CSS
-
-
-### v0.1.3 — Photo Vault Replica & Database Repair
-
-- Replicated the approved Photo Vault top structure
-- Added Back and Information buttons
-- Added live file, folder, and storage statistics
-- Changed `+ Album` to `+ Folder`
-- Matched the permanent bottom navigation
-- Raised IndexedDB from version 1 to 2 to repair incomplete databases
-- Kept the modular update structure intact
-
-
-### v0.1.2 — Photo-Style Header
-
-- Rebuilt the top area to match the approved Photo Vault design
-- Positioned the Files Vault logo beside the title
-- Added a live file count below the title
-- Placed `+ File` and `+ Album` beneath the identity row
-- Reduced wasted vertical space
-- Retained the compact storage indicator
-- Changed only the files that own layout, styling and count rendering
-
-
-### v0.1.1 — Startup & Navigation Fix
-
-- Fixed a mobile IndexedDB transaction timing fault that could prevent startup
-- Ensured Pinned and Private system folders can seed reliably
-- Added clearer startup error reporting
-- Aligned the Hide navigation icon with Home and Settings
-- Preserved the existing database name, version and stored-data compatibility
-- Changed only the owning JavaScript and CSS files
-
-### v0.1 — Clean Foundation
-
-- Created the first clean modular Files Vault
-- Added transparent Files Vault branding
-- Added Pinned and PIN-protected Private system folders
-- Added custom folders
-- Added multi-file upload with folder selection
-- Added IndexedDB persistence
-- Added common-format internal previews
-- Added unsupported-format fallback handling
-- Added move, delete and download actions
-- Added search and sorting
-- Added fixed Ghost navigation
-- Added permanent clean-update and README rules
+- **v0.2.9** — Advanced Search & Smart Filters
+- **v0.2.8** — Bulk Operations & File Ordering
+- **v0.2.7** — Premium File Cards
+- **v0.2.6** — Ghost PDF & Document Viewer
+- **v0.2.5** — Folder Organisation
+- **v0.2.4** — Premium Viewer zoom and gestures
+- **v0.2.3** — Ghost Viewer 2.0
+- **v0.2.2** — Compact Folder Workspace
+- **v0.2.1** — Direct-folder Upload UX
+- **v0.2.0** — Consolidated foundation

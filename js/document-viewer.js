@@ -913,6 +913,158 @@ function formatSimpleBytes(bytes) {
   return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
 }
 
+
+const SEARCH_TEXT_LIMIT = 1_250_000;
+
+function limitSearchText(value) {
+  return String(value ?? "")
+    .replace(/\u0000/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, SEARCH_TEXT_LIMIT);
+}
+
+function textFromMarkup(source, mimeType = "text/html") {
+  try {
+    const documentNode = new DOMParser().parseFromString(source, mimeType);
+    return documentNode.documentElement?.textContent || source;
+  } catch {
+    return source;
+  }
+}
+
+async function extractPdfSearchText(fileRecord) {
+  const pdfjs = await loadPdfModule();
+  const data = new Uint8Array(await fileRecord.blob.arrayBuffer());
+  const loadingTask = pdfjs.getDocument({ data });
+  const pdf = await loadingTask.promise;
+  const pages = [];
+
+  try {
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      pages.push(content.items.map(item => item.str || "").join(" "));
+      if (pages.join(" ").length >= SEARCH_TEXT_LIMIT) break;
+    }
+  } finally {
+    loadingTask.destroy();
+    pdf.destroy();
+  }
+
+  return pages.join("\n");
+}
+
+async function extractWordSearchText(fileRecord) {
+  const mammoth = await loadMammoth();
+  const result = await mammoth.extractRawText({
+    arrayBuffer: await fileRecord.blob.arrayBuffer(),
+  });
+  return result.value || "";
+}
+
+async function extractSpreadsheetSearchText(fileRecord) {
+  const XLSX = await loadSheetJs();
+  const workbook = XLSX.read(await fileRecord.blob.arrayBuffer(), {
+    type: "array",
+    cellDates: true,
+    cellText: true,
+  });
+  const sheets = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    sheets.push(sheetName);
+    sheets.push(XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], {
+      blankrows: false,
+    }));
+    if (sheets.join(" ").length >= SEARCH_TEXT_LIMIT) break;
+  }
+
+  return sheets.join("\n");
+}
+
+async function extractZipXmlSearchText(fileRecord, extension) {
+  const JSZip = await loadJsZip();
+  const zip = await JSZip.loadAsync(await fileRecord.blob.arrayBuffer());
+
+  if (extension === "zip" || extension === "epub") {
+    const entries = Object.values(zip.files)
+      .filter(entry => !entry.dir)
+      .map(entry => entry.name);
+    return entries.join("\n");
+  }
+
+  const xmlNames = Object.keys(zip.files)
+    .filter(name => {
+      if (extension === "odt" || extension === "fodt" || extension === "odp") {
+        return name === "content.xml";
+      }
+      return /^ppt\/slides\/slide\d+\.xml$/i.test(name);
+    })
+    .sort(naturalSort);
+
+  const parts = [];
+  for (const name of xmlNames) {
+    const source = await zip.file(name)?.async("text");
+    if (!source) continue;
+    parts.push(textFromMarkup(source, "application/xml"));
+    if (parts.join(" ").length >= SEARCH_TEXT_LIMIT) break;
+  }
+
+  return parts.join("\n");
+}
+
+export async function extractSearchableText(fileRecord) {
+  const extension = extensionOf(fileRecord.name);
+  const type = String(fileRecord.type || "").toLowerCase();
+
+  if (type === "application/pdf" || extension === "pdf") {
+    return limitSearchText(await extractPdfSearchText(fileRecord));
+  }
+
+  if (WORD_EXTENSIONS.has(extension)) {
+    return limitSearchText(await extractWordSearchText(fileRecord));
+  }
+
+  if (SPREADSHEET_EXTENSIONS.has(extension)) {
+    return limitSearchText(await extractSpreadsheetSearchText(fileRecord));
+  }
+
+  if (PRESENTATION_EXTENSIONS.has(extension)
+    || OPEN_DOCUMENT_TEXT_EXTENSIONS.has(extension)
+    || ARCHIVE_EXTENSIONS.has(extension)) {
+    return limitSearchText(await extractZipXmlSearchText(fileRecord, extension));
+  }
+
+  if (extension === "rtf" || type === "application/rtf" || type === "text/rtf") {
+    return limitSearchText(rtfToText(await fileRecord.blob.text()));
+  }
+
+  if (MARKDOWN_EXTENSIONS.has(extension)
+    || TEXT_EXTENSIONS.has(extension)
+    || extension === "json"
+    || type === "application/json"
+    || type.startsWith("text/")) {
+    const source = await fileRecord.blob.text();
+    if (["html", "htm", "xml", "svg"].includes(extension)) {
+      return limitSearchText(textFromMarkup(
+        source,
+        extension === "html" || extension === "htm" ? "text/html" : "application/xml"
+      ));
+    }
+    return limitSearchText(source);
+  }
+
+  if (LEGACY_WORD_EXTENSIONS.has(extension)
+    || LEGACY_PRESENTATION_EXTENSIONS.has(extension)) {
+    return limitSearchText(
+      extractPrintableStrings(new Uint8Array(await fileRecord.blob.arrayBuffer()))
+    );
+  }
+
+  return "";
+}
+
 export function releaseDocumentPreview(container) {
   const controller = controllerMap.get(container);
   controller?.destroy?.();

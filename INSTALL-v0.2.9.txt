@@ -1,0 +1,28 @@
+GHOST FILES VAULT v0.2.9 — INSTALL
+
+1. Extract Ghost-Files-Vault-v0.2.9-Advanced-Search-Smart-Filters.zip.
+2. Open your real project folder:
+   C:\Users\joeba\Documents\GitHub\Ghost-Files-Vault
+3. Copy the contents of the extracted update folder into the project root.
+4. Choose "Replace the files in the destination".
+5. Windows will add the new file: js\file-search.js
+6. Refresh Ghost in Chrome with Ctrl + F5.
+
+CHANGED FILES
+- index.html
+- css\files.css
+- js\app.js
+- js\document-viewer.js
+- js\file-card.js
+- js\utils.js
+- js\README.md
+- README.md
+- RELEASE-NOTES.md
+
+NEW FILES
+- js\file-search.js
+- RELEASE-NOTES-v0.2.9.md
+- INSTALL-v0.2.9.txt
+
+SUGGESTED COMMIT
+feat(file-vault): add advanced search and smart filters v0.2.9

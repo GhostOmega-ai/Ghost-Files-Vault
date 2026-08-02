@@ -1,3 +1,5 @@
+import { fileTypeLabel } from "./file-types.js";
+
 const fullDateFormatter = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
   month: "short",
@@ -82,6 +84,18 @@ export function sortFiles(files, mode) {
       return copy.sort((a, b) => b.name.localeCompare(a.name));
     case "size-desc":
       return copy.sort((a, b) => b.size - a.size);
+    case "size-asc":
+      return copy.sort((a, b) => a.size - b.size);
+    case "type-asc":
+      return copy.sort((a, b) =>
+        fileTypeLabel(a).localeCompare(fileTypeLabel(b))
+        || a.name.localeCompare(b.name)
+      );
+    case "opened-desc":
+      return copy.sort((a, b) =>
+        (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0)
+        || b.createdAt - a.createdAt
+      );
     default:
       return copy.sort((a, b) => b.createdAt - a.createdAt);
   }

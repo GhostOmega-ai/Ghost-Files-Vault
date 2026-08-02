@@ -11,7 +11,7 @@
 </head>
 <body>
   <main class="app" id="app">
-    <!-- Ghost Files Vault v0.2.8: Bulk Operations and File Ordering -->
+    <!-- Ghost Files Vault v0.2.9: Advanced Search and Smart Filtering -->
     <header class="topbar">
       <button id="back-button" class="icon-btn topbar__back hidden" type="button" aria-label="Back">←</button>
       <div class="topbar__title">
@@ -51,16 +51,113 @@
 
     <section id="album-view" class="album-view hidden" aria-live="polite">
       <div class="folder-toolbar">
-        <div class="folder-toolbar__search">
+        <div class="search-box">
+          <svg class="search-box__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4 4" />
+          </svg>
+
           <input id="search-input" class="search-input" type="search"
-            placeholder="Search this folder" autocomplete="off">
+            placeholder="Search names, types or document text"
+            aria-label="Search this folder" autocomplete="off" spellcheck="false">
+
+          <button class="search-box__clear hidden" id="clear-search-button" type="button"
+            aria-label="Clear search" title="Clear search">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 7l10 10M17 7 7 17" />
+            </svg>
+          </button>
+
+          <button class="search-box__filters" id="search-filter-toggle" type="button"
+            aria-label="Open search filters" aria-expanded="false"
+            aria-controls="search-filter-panel" title="Search filters">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16M7 12h10M10 18h4" />
+            </svg>
+            <span class="search-filter-count hidden" id="search-filter-count">0</span>
+          </button>
+        </div>
+
+        <div class="file-filter-strip" id="file-filter-strip"
+          role="toolbar" aria-label="Filter by file type">
+          <button class="file-filter-chip is-active" type="button"
+            data-file-filter="all" aria-pressed="true">All</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="pdf" aria-pressed="false">PDF</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="word" aria-pressed="false">Word</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="spreadsheet" aria-pressed="false">Sheets</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="presentation" aria-pressed="false">Slides</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="text" aria-pressed="false">Text &amp; Code</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="archive" aria-pressed="false">Archives</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="image" aria-pressed="false">Images</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="media" aria-pressed="false">Media</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="app" aria-pressed="false">Apps</button>
+          <button class="file-filter-chip" type="button"
+            data-file-filter="pinned" aria-pressed="false">Pinned</button>
+        </div>
+
+        <section class="search-filter-panel hidden" id="search-filter-panel"
+          aria-label="Advanced search filters">
+          <div class="search-filter-grid">
+            <label class="search-filter-field">
+              <span>Date added</span>
+              <select id="date-filter-select">
+                <option value="any">Any time</option>
+                <option value="today">Today</option>
+                <option value="week">Last 7 days</option>
+                <option value="month">Last 30 days</option>
+                <option value="year">This year</option>
+                <option value="older">Older than a year</option>
+              </select>
+            </label>
+
+            <label class="search-filter-field">
+              <span>File size</span>
+              <select id="size-filter-select">
+                <option value="any">Any size</option>
+                <option value="small">Under 1 MB</option>
+                <option value="medium">1–10 MB</option>
+                <option value="large">10–100 MB</option>
+                <option value="huge">100 MB+</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="content-search-toggle">
+            <input id="content-search-toggle" type="checkbox" checked>
+            <span class="content-search-toggle__switch" aria-hidden="true"></span>
+            <span>
+              <strong>Search inside documents</strong>
+              <small>PDF, Word, spreadsheets, slides, text, code and archives</small>
+            </span>
+          </label>
+
+          <button class="search-filter-reset" id="reset-search-filters" type="button">
+            Reset filters
+          </button>
+        </section>
+
+        <div class="folder-toolbar__result-row">
+          <p class="search-status" id="search-status" aria-live="polite">0 files</p>
+
           <select id="sort-select" class="sort-select" aria-label="Sort files">
             <option value="custom">Custom order</option>
             <option value="newest">Newest</option>
             <option value="oldest">Oldest</option>
+            <option value="opened-desc">Recently opened</option>
             <option value="name-asc">Name A–Z</option>
             <option value="name-desc">Name Z–A</option>
+            <option value="type-asc">File type</option>
             <option value="size-desc">Largest</option>
+            <option value="size-asc">Smallest</option>
           </select>
         </div>
 

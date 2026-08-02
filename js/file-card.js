@@ -80,12 +80,44 @@ function attachLongPress(button, callback) {
   }, { capture: true });
 }
 
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function appendHighlightedName(element, value, terms) {
+  const cleanTerms = [...new Set(
+    terms.map(term => String(term).trim()).filter(Boolean)
+  )].sort((first, second) => second.length - first.length);
+
+  if (!cleanTerms.length) {
+    element.textContent = value;
+    return;
+  }
+
+  const expression = new RegExp(`(${cleanTerms.map(escapeRegExp).join("|")})`, "gi");
+  const parts = String(value).split(expression);
+
+  for (const part of parts) {
+    if (!part) continue;
+    if (cleanTerms.some(term => term.toLowerCase() === part.toLowerCase())) {
+      const mark = document.createElement("mark");
+      mark.textContent = part;
+      element.append(mark);
+    } else {
+      element.append(document.createTextNode(part));
+    }
+  }
+}
+
 export function createFileCard(file, options = {}) {
   const {
     index = 0,
     selected = false,
     selectionMode = false,
     reorderable = false,
+    highlightTerms = [],
+    matchKind = "",
     onActivate = () => {},
     onLongPress = null,
   } = options;
@@ -100,6 +132,7 @@ export function createFileCard(file, options = {}) {
     selectionMode ? "file-card--selection-mode" : "",
     selected ? "file-card--selected" : "",
     reorderable ? "file-card--reorderable" : "",
+    matchKind === "content" ? "file-card--content-match" : "",
   ].filter(Boolean).join(" ");
   card.dataset.fileId = file.id;
   card.dataset.fileType = presentation.category;
@@ -114,6 +147,7 @@ export function createFileCard(file, options = {}) {
         <span class="file-card__name"></span>
         <span class="file-card__details">
           <span class="file-card__type">${presentation.label}</span>
+          ${matchKind === "content" ? '<span class="file-card__match">Contents</span>' : ""}
           <span class="file-card__detail">${sizeLabel}</span>
           <span class="file-card__detail">${dateLabel}</span>
         </span>
@@ -133,7 +167,7 @@ export function createFileCard(file, options = {}) {
   const openButton = card.querySelector(".file-card__open");
   const dragHandle = card.querySelector(".file-drag-handle");
   const name = card.querySelector(".file-card__name");
-  name.textContent = file.name;
+  appendHighlightedName(name, file.name, highlightTerms);
 
   if (dragHandle) {
     dragHandle.setAttribute("aria-label", `Move ${file.name}`);
@@ -143,7 +177,7 @@ export function createFileCard(file, options = {}) {
   openButton.title = file.name;
   openButton.setAttribute(
     "aria-label",
-    `${file.name}, ${presentation.label}, ${sizeLabel}, ${dateLabel}`
+    `${file.name}, ${presentation.label}, ${sizeLabel}, ${dateLabel}${matchKind === "content" ? ", matched document contents" : ""}`
   );
 
   if (selectionMode) {

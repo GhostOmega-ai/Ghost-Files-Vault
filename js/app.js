@@ -10,6 +10,7 @@ import {
   getSetting,
 } from "./db.js";
 import { createFileCard } from "./file-card.js";
+import { activeSearchFilterCount, createFileSearchEngine } from "./file-search.js";
 import { createFileOrderController } from "./file-order.js";
 import { fileTypeLabel } from "./file-types.js";
 import { renderPreview, releasePreview } from "./viewer.js";
@@ -31,6 +32,10 @@ const state = {
   pendingDeleteFileIds: [],
   selectionMode: false,
   selectedFileIds: new Set(),
+  renderedFiles: [],
+  searchMatches: new Map(),
+  searchRenderToken: 0,
+  searchDebounceTimer: 0,
 };
 
 const elements = {
@@ -44,6 +49,16 @@ const elements = {
   addAlbumButton: document.querySelector("#add-album-button"),
   fileInput: document.querySelector("#file-input"),
   searchInput: document.querySelector("#search-input"),
+  clearSearchButton: document.querySelector("#clear-search-button"),
+  searchFilterToggle: document.querySelector("#search-filter-toggle"),
+  searchFilterCount: document.querySelector("#search-filter-count"),
+  searchFilterPanel: document.querySelector("#search-filter-panel"),
+  fileFilterButtons: [...document.querySelectorAll("[data-file-filter]")],
+  dateFilterSelect: document.querySelector("#date-filter-select"),
+  sizeFilterSelect: document.querySelector("#size-filter-select"),
+  contentSearchToggle: document.querySelector("#content-search-toggle"),
+  resetSearchFiltersButton: document.querySelector("#reset-search-filters"),
+  searchStatus: document.querySelector("#search-status"),
   sortSelect: document.querySelector("#sort-select"),
   fileCount: document.querySelector("#file-count"),
   folderCount: document.querySelector("#folder-count"),
@@ -130,6 +145,10 @@ const fileOrder = createFileOrderController({
   },
 });
 
+const fileSearch = createFileSearchEngine({
+  isPinned: file => isFilePinned(file),
+});
+
 async function init() {
   await seedSystemData();
   bindEvents();
@@ -152,8 +171,17 @@ function bindEvents() {
   elements.infoButton.addEventListener("click", showVaultInfo);
   elements.vaultHomeButton.addEventListener("click", () => { location.href = "../Ghost-Phoenix/"; });
   elements.vaultSettingsButton.addEventListener("click", () => showToast("Settings will open here"));
-  elements.searchInput.addEventListener("input", renderFiles);
-  elements.sortSelect.addEventListener("change", renderFiles);
+  elements.searchInput.addEventListener("input", handleSearchInput);
+  elements.clearSearchButton.addEventListener("click", clearSearchQuery);
+  elements.searchFilterToggle.addEventListener("click", toggleSearchFilterPanel);
+  elements.fileFilterButtons.forEach(button => {
+    button.addEventListener("click", () => setTypeFilter(button.dataset.fileFilter));
+  });
+  elements.dateFilterSelect.addEventListener("change", () => renderFiles());
+  elements.sizeFilterSelect.addEventListener("change", () => renderFiles());
+  elements.contentSearchToggle.addEventListener("change", () => renderFiles());
+  elements.resetSearchFiltersButton.addEventListener("click", resetAdvancedSearchFilters);
+  elements.sortSelect.addEventListener("change", () => renderFiles());
   elements.pinForm.addEventListener("submit", verifyPin);
   elements.viewerClose.addEventListener("click", () => closeViewer());
   elements.viewerDialog.addEventListener("click", handleViewerBackdropClick);
@@ -174,9 +202,14 @@ function bindEvents() {
   elements.moveFileButton.addEventListener("click", openMoveDialog);
   elements.hideButton.addEventListener("click", hideApp);
   document.addEventListener("keydown", event => {
-    if (event.key !== "Escape" || !state.selectionMode) return;
-    if (document.querySelector("dialog[open]")) return;
-    exitSelectionMode();
+    if (event.key !== "Escape" || document.querySelector("dialog[open]")) return;
+
+    if (!elements.searchFilterPanel.classList.contains("hidden")) {
+      closeSearchFilterPanel();
+      return;
+    }
+
+    if (state.selectionMode) exitSelectionMode();
   });
 }
 
@@ -210,6 +243,8 @@ function albumArtwork(album) {
 function renderAlbums() {
   folderOrder.cancel();
   fileOrder.cancel();
+  fileSearch.cancel();
+  window.clearTimeout(state.searchDebounceTimer);
   resetSelectionState();
 
   elements.albumGrid.replaceChildren();
@@ -284,13 +319,15 @@ function openAlbum(albumId) {
   elements.mainStats.classList.add("hidden");
   elements.albumView.classList.remove("hidden");
   elements.backButton.classList.remove("hidden");
-  elements.searchInput.value = "";
+  resetSearchControls({ render: false });
   elements.sortSelect.value = "custom";
   renderFiles();
 }
 
 function closeAlbum() {
   fileOrder.cancel();
+  fileSearch.cancel();
+  window.clearTimeout(state.searchDebounceTimer);
   resetSelectionState();
   state.activeAlbumId = null;
   elements.pageTitle.textContent = "File Vault";
@@ -306,46 +343,188 @@ function handleBack() {
 }
 
 function showVaultInfo() {
-  alert("Ghost File Vault v0.2.8\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
+  alert("Ghost File Vault v0.2.9\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
 }
 
 function currentFolderFiles() {
   return state.files.filter(file => file.albumId === state.activeAlbumId);
 }
 
-function visibleFiles() {
-  const query = elements.searchInput.value.trim().toLowerCase();
-  const filtered = currentFolderFiles().filter(file =>
-    file.name.toLowerCase().includes(query)
-  );
-  return sortFiles(filtered, elements.sortSelect.value);
+function activeTypeFilter() {
+  return elements.fileFilterButtons.find(button =>
+    button.getAttribute("aria-pressed") === "true"
+  )?.dataset.fileFilter || "all";
 }
 
-function canReorderFiles(files) {
+function currentSearchCriteria() {
+  return {
+    query: elements.searchInput.value.trim(),
+    type: activeTypeFilter(),
+    date: elements.dateFilterSelect.value,
+    size: elements.sizeFilterSelect.value,
+    includeContents: elements.contentSearchToggle.checked,
+  };
+}
+
+function isSearchActive(criteria = currentSearchCriteria()) {
+  return Boolean(criteria.query)
+    || activeSearchFilterCount(criteria) > 0;
+}
+
+function setSearchControlsDisabled(disabled) {
+  elements.searchInput.disabled = disabled;
+  elements.clearSearchButton.disabled = disabled;
+  elements.searchFilterToggle.disabled = disabled;
+  elements.sortSelect.disabled = disabled;
+  elements.fileFilterButtons.forEach(button => { button.disabled = disabled; });
+  elements.dateFilterSelect.disabled = disabled;
+  elements.sizeFilterSelect.disabled = disabled;
+  elements.contentSearchToggle.disabled = disabled;
+  elements.resetSearchFiltersButton.disabled = disabled;
+}
+
+function updateSearchControls(criteria = currentSearchCriteria()) {
+  const filterCount = activeSearchFilterCount(criteria);
+  const hasQuery = Boolean(criteria.query);
+
+  elements.clearSearchButton.classList.toggle("hidden", !hasQuery);
+  elements.searchFilterCount.textContent = String(filterCount);
+  elements.searchFilterCount.classList.toggle("hidden", filterCount === 0);
+  elements.searchFilterToggle.classList.toggle("is-active", filterCount > 0);
+}
+
+function setSearchStatus(message, searching = false) {
+  elements.searchStatus.textContent = message;
+  elements.searchStatus.classList.toggle("is-searching", searching);
+}
+
+function setTypeFilter(filter = "all", { render = true } = {}) {
+  elements.fileFilterButtons.forEach(button => {
+    const active = button.dataset.fileFilter === filter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  if (render) renderFiles();
+}
+
+function toggleSearchFilterPanel() {
+  const opening = elements.searchFilterPanel.classList.contains("hidden");
+  elements.searchFilterPanel.classList.toggle("hidden", !opening);
+  elements.searchFilterToggle.setAttribute("aria-expanded", String(opening));
+}
+
+function closeSearchFilterPanel() {
+  elements.searchFilterPanel.classList.add("hidden");
+  elements.searchFilterToggle.setAttribute("aria-expanded", "false");
+}
+
+function resetAdvancedSearchFilters() {
+  setTypeFilter("all", { render: false });
+  elements.dateFilterSelect.value = "any";
+  elements.sizeFilterSelect.value = "any";
+  elements.contentSearchToggle.checked = true;
+  closeSearchFilterPanel();
+  renderFiles();
+}
+
+function resetSearchControls({ render = true } = {}) {
+  window.clearTimeout(state.searchDebounceTimer);
+  fileSearch.cancel();
+  elements.searchInput.value = "";
+  elements.dateFilterSelect.value = "any";
+  elements.sizeFilterSelect.value = "any";
+  elements.contentSearchToggle.checked = true;
+  setTypeFilter("all", { render: false });
+  closeSearchFilterPanel();
+  updateSearchControls();
+  if (render) renderFiles();
+}
+
+function handleSearchInput() {
+  updateSearchControls();
+  window.clearTimeout(state.searchDebounceTimer);
+  state.searchDebounceTimer = window.setTimeout(() => renderFiles(), 170);
+}
+
+function clearSearchQuery() {
+  elements.searchInput.value = "";
+  updateSearchControls();
+  elements.searchInput.focus();
+  renderFiles();
+}
+
+function canReorderFiles(files, criteria) {
   return !state.selectionMode
-    && !elements.searchInput.value.trim()
+    && !isSearchActive(criteria)
     && elements.sortSelect.value === "custom"
     && files.length > 1;
 }
 
-function renderFiles() {
+async function renderFiles() {
   fileOrder.cancel();
-  const files = visibleFiles();
-  const reorderable = canReorderFiles(files);
+  const renderToken = ++state.searchRenderToken;
+  const criteria = currentSearchCriteria();
+  const sortedFiles = sortFiles(currentFolderFiles(), elements.sortSelect.value);
+
+  updateSearchControls(criteria);
+
+  if (criteria.query && criteria.includeContents) {
+    setSearchStatus("Searching names and document contents…", true);
+  } else if (isSearchActive(criteria)) {
+    setSearchStatus("Applying filters…", true);
+  }
+
+  const result = await fileSearch.search(sortedFiles, criteria, {
+    onProgress({ processed, total, matches }) {
+      if (renderToken !== state.searchRenderToken || !total) return;
+      setSearchStatus(
+        `Searching document contents… ${processed} of ${total} • ${matches} found`,
+        processed < total
+      );
+    },
+  });
+
+  if (result.cancelled || renderToken !== state.searchRenderToken) return;
+
+  const files = result.files;
+  const reorderable = canReorderFiles(files, criteria);
+  state.renderedFiles = files;
+  state.searchMatches = result.matches;
 
   updateFolderSummary(files.length);
   updateSelectionUi(files);
   elements.fileList.replaceChildren();
   elements.fileList.classList.toggle("file-list--reorderable", reorderable);
 
+  const total = currentFolderFiles().length;
+  if (isSearchActive(criteria)) {
+    const suffix = result.contentFailures > 0 ? " • some contents unavailable" : "";
+    setSearchStatus(
+      `${files.length} of ${total} file${total === 1 ? "" : "s"}${suffix}`,
+      false
+    );
+  } else {
+    setSearchStatus(`${total} file${total === 1 ? "" : "s"}`, false);
+  }
+
   if (!files.length) {
-    const query = elements.searchInput.value.trim();
+    const searching = isSearchActive(criteria);
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.innerHTML = `
-      <strong>${query ? "No matching files" : "This folder is empty"}</strong>
-      <span>${query ? "Try a different search." : "Tap + File to add something."}</span>
+      <strong>${searching ? "No files match this search" : "This folder is empty"}</strong>
+      <span>${searching ? "Try another term or reset the filters." : "Tap + File to add something."}</span>
     `;
+
+    if (searching) {
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.className = "empty-state__action";
+      reset.textContent = "Reset search";
+      reset.addEventListener("click", () => resetSearchControls());
+      empty.append(reset);
+    }
+
     elements.fileList.append(empty);
     return;
   }
@@ -359,6 +538,8 @@ function renderFiles() {
       selected,
       selectionMode: state.selectionMode,
       reorderable,
+      highlightTerms: result.queryTerms,
+      matchKind: result.matches.get(file.id) || "",
       onActivate(event) {
         if (state.selectionMode) {
           toggleFileSelection(file.id);
@@ -392,7 +573,7 @@ function updateFolderSummary(visibleFileCount) {
   }
 
   const totalInFolder = currentFolderFiles().length;
-  const count = elements.searchInput.value.trim() ? visibleFileCount : totalInFolder;
+  const count = isSearchActive() ? visibleFileCount : totalInFolder;
   const label = count === 1 ? "FILE" : "FILES";
   elements.pageEyebrow.textContent = `${count} ${label}`;
 }
@@ -405,8 +586,7 @@ function resetSelectionState() {
   elements.folderAddFileButton.disabled = false;
   elements.folderSelectButton.textContent = "Select";
   elements.folderSelectButton.setAttribute("aria-pressed", "false");
-  elements.searchInput.disabled = false;
-  elements.sortSelect.disabled = false;
+  setSearchControlsDisabled(false);
   elements.vaultNav.classList.remove("hidden");
   elements.bulkActions.classList.add("hidden");
 }
@@ -445,7 +625,7 @@ function handleFolderPrimaryAction() {
     return;
   }
 
-  const files = visibleFiles();
+  const files = state.renderedFiles;
   const allSelected = files.length > 0
     && files.every(file => state.selectedFileIds.has(file.id));
 
@@ -459,7 +639,7 @@ function handleFolderPrimaryAction() {
 }
 
 function selectedFiles() {
-  return visibleFiles().filter(file => state.selectedFileIds.has(file.id));
+  return state.renderedFiles.filter(file => state.selectedFileIds.has(file.id));
 }
 
 function updateSelectionUi(files) {
@@ -469,8 +649,7 @@ function updateSelectionUi(files) {
     elements.folderAddFileButton.disabled = false;
     elements.folderSelectButton.textContent = "Select";
     elements.folderSelectButton.setAttribute("aria-pressed", "false");
-    elements.searchInput.disabled = false;
-    elements.sortSelect.disabled = false;
+    setSearchControlsDisabled(false);
     elements.vaultNav.classList.remove("hidden");
     elements.bulkActions.classList.add("hidden");
     return;
@@ -485,8 +664,8 @@ function updateSelectionUi(files) {
   elements.folderAddFileButton.disabled = files.length === 0;
   elements.folderSelectButton.textContent = "Cancel";
   elements.folderSelectButton.setAttribute("aria-pressed", "true");
-  elements.searchInput.disabled = true;
-  elements.sortSelect.disabled = true;
+  setSearchControlsDisabled(true);
+  closeSearchFilterPanel();
   elements.vaultNav.classList.add("hidden");
   elements.bulkActions.classList.remove("hidden");
   elements.bulkMoveButton.disabled = count === 0;
@@ -648,6 +827,7 @@ async function openViewer(fileId) {
 
   state.activeFileId = fileId;
   updateViewerDetails(file);
+  void recordFileOpened(file);
 
   const preview = renderPreview(elements.viewerBody, file);
   elements.viewerDialog.classList.remove("is-closing");
@@ -673,6 +853,9 @@ function handleViewerClosed() {
   elements.viewerDialog.classList.remove("is-open", "is-closing");
   releasePreview(elements.viewerBody);
   state.activeFileId = null;
+  if (state.activeAlbumId && elements.sortSelect.value === "opened-desc") {
+    renderFiles();
+  }
 }
 
 function closeViewer() {
@@ -695,6 +878,25 @@ function closeViewer() {
       resolve();
     }, 200);
   });
+}
+
+async function recordFileOpened(file) {
+  const openedAt = Date.now();
+  const sourceId = file.sourceFileId || file.id;
+  const updates = state.files
+    .filter(item => item.id === sourceId || item.sourceFileId === sourceId)
+    .map(item => ({ ...item, lastOpenedAt: openedAt }));
+
+  if (!updates.length) return;
+
+  const replacements = new Map(updates.map(item => [item.id, item]));
+  state.files = state.files.map(item => replacements.get(item.id) ?? item);
+
+  try {
+    await putFiles(updates);
+  } catch (error) {
+    console.info("Ghost could not save the recently opened time:", error);
+  }
 }
 
 function activeFile() {
