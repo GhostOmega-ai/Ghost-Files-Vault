@@ -1,5 +1,5 @@
 import { getFilePresentation } from "./file-types.js";
-import { formatBytes, formatRelativeDate, showToast } from "./utils.js";
+import { formatBytes, formatRelativeDate } from "./utils.js";
 
 const CHEVRON_ICON = `
   <svg class="file-card__chevron-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -13,7 +13,15 @@ const CHECK_ICON = `
   </svg>
 `;
 
-function attachFilenameLongPress(button, filename) {
+const DRAG_ICON = `
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7 8h10M7 12h10M7 16h10" />
+  </svg>
+`;
+
+function attachLongPress(button, callback) {
+  if (typeof callback !== "function") return;
+
   const holdDelay = 520;
   const movementTolerance = 10;
   let timer = 0;
@@ -36,9 +44,12 @@ function attachFilenameLongPress(button, filename) {
     timer = window.setTimeout(() => {
       timer = 0;
       suppressNextClick = true;
-      button.classList.add("file-card--long-press");
-      showToast(filename);
-      window.setTimeout(() => button.classList.remove("file-card--long-press"), 260);
+      button.closest(".file-card")?.classList.add("file-card--long-press");
+      callback();
+      window.setTimeout(
+        () => button.closest(".file-card")?.classList.remove("file-card--long-press"),
+        260
+      );
     }, holdDelay);
   });
 
@@ -74,51 +85,72 @@ export function createFileCard(file, options = {}) {
     index = 0,
     selected = false,
     selectionMode = false,
+    reorderable = false,
+    onActivate = () => {},
+    onLongPress = null,
   } = options;
   const presentation = getFilePresentation(file);
   const sizeLabel = formatBytes(file.size);
   const dateLabel = formatRelativeDate(file.createdAt);
-  const button = document.createElement("button");
+  const card = document.createElement("article");
 
-  button.type = "button";
-  button.className = [
+  card.className = [
     "file-card",
     `file-card--${presentation.category}`,
     selectionMode ? "file-card--selection-mode" : "",
     selected ? "file-card--selected" : "",
+    reorderable ? "file-card--reorderable" : "",
   ].filter(Boolean).join(" ");
-  button.dataset.fileId = file.id;
-  button.dataset.fileType = presentation.category;
-  button.style.setProperty("--file-index", String(Math.min(index, 8)));
-  button.title = file.name;
-  button.setAttribute(
+  card.dataset.fileId = file.id;
+  card.dataset.fileType = presentation.category;
+  card.style.setProperty("--file-index", String(Math.min(index, 8)));
+
+  card.innerHTML = `
+    <button class="file-card__open" type="button">
+      <span class="file-card__icon" aria-hidden="true">
+        ${presentation.icon}
+      </span>
+      <span class="file-card__content">
+        <span class="file-card__name"></span>
+        <span class="file-card__details">
+          <span class="file-card__type">${presentation.label}</span>
+          <span class="file-card__detail">${sizeLabel}</span>
+          <span class="file-card__detail">${dateLabel}</span>
+        </span>
+      </span>
+      <span class="file-card__state" aria-hidden="true">
+        <span class="file-card__chevron">${CHEVRON_ICON}</span>
+        <span class="file-card__check">${CHECK_ICON}</span>
+      </span>
+    </button>
+    ${reorderable ? `
+      <button class="file-drag-handle" type="button">
+        ${DRAG_ICON}
+      </button>
+    ` : ""}
+  `;
+
+  const openButton = card.querySelector(".file-card__open");
+  const dragHandle = card.querySelector(".file-drag-handle");
+  const name = card.querySelector(".file-card__name");
+  name.textContent = file.name;
+
+  if (dragHandle) {
+    dragHandle.setAttribute("aria-label", `Move ${file.name}`);
+    dragHandle.title = "Drag to change this file's position";
+  }
+
+  openButton.title = file.name;
+  openButton.setAttribute(
     "aria-label",
     `${file.name}, ${presentation.label}, ${sizeLabel}, ${dateLabel}`
   );
 
   if (selectionMode) {
-    button.setAttribute("aria-pressed", String(selected));
+    openButton.setAttribute("aria-pressed", String(selected));
   }
 
-  button.innerHTML = `
-    <span class="file-card__icon" aria-hidden="true">
-      ${presentation.icon}
-    </span>
-    <span class="file-card__content">
-      <span class="file-card__name"></span>
-      <span class="file-card__details">
-        <span class="file-card__type">${presentation.label}</span>
-        <span class="file-card__detail">${sizeLabel}</span>
-        <span class="file-card__detail">${dateLabel}</span>
-      </span>
-    </span>
-    <span class="file-card__state" aria-hidden="true">
-      <span class="file-card__chevron">${CHEVRON_ICON}</span>
-      <span class="file-card__check">${CHECK_ICON}</span>
-    </span>
-  `;
-
-  button.querySelector(".file-card__name").textContent = file.name;
-  attachFilenameLongPress(button, file.name);
-  return button;
+  openButton.addEventListener("click", onActivate);
+  attachLongPress(openButton, onLongPress);
+  return card;
 }

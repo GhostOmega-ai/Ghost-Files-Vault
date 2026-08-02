@@ -153,9 +153,25 @@ export function putFile(fileRecord) {
   );
 }
 
+export function putFiles(fileRecords) {
+  if (!fileRecords.length) return Promise.resolve([]);
+
+  return runTransaction(FILE_STORE, "readwrite", store =>
+    Promise.all(fileRecords.map(record => requestToPromise(store.put(record))))
+  );
+}
+
 export function deleteFile(id) {
   return runTransaction(FILE_STORE, "readwrite", store =>
     requestToPromise(store.delete(id))
+  );
+}
+
+export function deleteFiles(ids) {
+  if (!ids.length) return Promise.resolve([]);
+
+  return runTransaction(FILE_STORE, "readwrite", store =>
+    Promise.all(ids.map(id => requestToPromise(store.delete(id))))
   );
 }
 

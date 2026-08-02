@@ -4,10 +4,13 @@ import {
   putAlbum,
   getFiles,
   putFile,
+  putFiles,
   deleteFile,
+  deleteFiles,
   getSetting,
 } from "./db.js";
 import { createFileCard } from "./file-card.js";
+import { createFileOrderController } from "./file-order.js";
 import { fileTypeLabel } from "./file-types.js";
 import { renderPreview, releasePreview } from "./viewer.js";
 import {
@@ -24,11 +27,14 @@ const state = {
   pendingUploads: [],
   activeFileId: null,
   pendingPrivateAction: null,
+  pendingMoveFileIds: [],
+  pendingDeleteFileIds: [],
   selectionMode: false,
   selectedFileIds: new Set(),
 };
 
 const elements = {
+  app: document.querySelector("#app"),
   albumGrid: document.querySelector("#album-grid"),
   albumView: document.querySelector("#album-view"),
   fileList: document.querySelector("#file-list"),
@@ -78,12 +84,21 @@ const elements = {
   cancelRenameIcon: document.querySelector("#cancel-rename-icon"),
   deleteDialog: document.querySelector("#delete-dialog"),
   deleteForm: document.querySelector("#delete-form"),
+  deleteDialogTitle: document.querySelector("#delete-dialog-title"),
   deleteFileMessage: document.querySelector("#delete-file-message"),
   cancelDeleteButton: document.querySelector("#cancel-delete-button"),
   moveDialog: document.querySelector("#move-dialog"),
+  moveDialogEyebrow: document.querySelector("#move-dialog-eyebrow"),
+  moveDialogTitle: document.querySelector("#move-dialog-title"),
   movePickerList: document.querySelector("#move-picker-list"),
   folderAddFileButton: document.querySelector("#folder-add-file-button"),
   folderSelectButton: document.querySelector("#folder-select-button"),
+  vaultNav: document.querySelector("#vault-nav"),
+  bulkActions: document.querySelector("#bulk-actions"),
+  bulkPinButton: document.querySelector("#bulk-pin-button"),
+  bulkPinLabel: document.querySelector("#bulk-pin-label"),
+  bulkMoveButton: document.querySelector("#bulk-move-button"),
+  bulkDeleteButton: document.querySelector("#bulk-delete-button"),
   hideButton: document.querySelector("#hide-button"),
 };
 
@@ -99,6 +114,22 @@ const folderOrder = createFolderOrderController({
   },
 });
 
+const fileOrder = createFileOrderController({
+  list: elements.fileList,
+  notify: showToast,
+  getFiles() {
+    return state.files.filter(file => file.albumId === state.activeAlbumId);
+  },
+  onOrderChange(updates) {
+    const replacements = new Map(updates.map(file => [file.id, file]));
+    state.files = state.files.map(file => replacements.get(file.id) ?? file);
+  },
+  async onSaveError() {
+    await refreshState();
+    renderFiles();
+  },
+});
+
 async function init() {
   await seedSystemData();
   bindEvents();
@@ -108,8 +139,11 @@ async function init() {
 
 function bindEvents() {
   elements.addFileButton.addEventListener("click", () => elements.fileInput.click());
-  elements.folderAddFileButton.addEventListener("click", () => elements.fileInput.click());
+  elements.folderAddFileButton.addEventListener("click", handleFolderPrimaryAction);
   elements.folderSelectButton.addEventListener("click", toggleSelectionMode);
+  elements.bulkPinButton.addEventListener("click", bulkTogglePinned);
+  elements.bulkMoveButton.addEventListener("click", openBulkMoveDialog);
+  elements.bulkDeleteButton.addEventListener("click", openBulkDeleteDialog);
   elements.addAlbumButton.addEventListener("click", openCreateAlbumDialog);
   elements.fileInput.addEventListener("change", handleFileSelection);
   elements.createAlbumForm.addEventListener("submit", createAlbum);
@@ -135,16 +169,21 @@ function bindEvents() {
   elements.pinFileButton.addEventListener("click", togglePinnedFile);
   elements.downloadFileButton.addEventListener("click", downloadActiveFile);
   elements.deleteFileButton.addEventListener("click", openDeleteDialog);
-  elements.deleteForm.addEventListener("submit", removeActiveFile);
-  elements.cancelDeleteButton.addEventListener("click", () => elements.deleteDialog.close());
+  elements.deleteForm.addEventListener("submit", removePendingFiles);
+  elements.cancelDeleteButton.addEventListener("click", cancelPendingDelete);
   elements.moveFileButton.addEventListener("click", openMoveDialog);
   elements.hideButton.addEventListener("click", hideApp);
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !state.selectionMode) return;
+    if (document.querySelector("dialog[open]")) return;
+    exitSelectionMode();
+  });
 }
 
 async function refreshState() {
   const [albums, files] = await Promise.all([getAlbums(), getFiles()]);
   state.albums = await folderOrder.prepare(albums);
-  state.files = files;
+  state.files = await fileOrder.prepare(files);
   renderStorage();
 }
 
@@ -170,8 +209,8 @@ function albumArtwork(album) {
 
 function renderAlbums() {
   folderOrder.cancel();
-  state.selectionMode = false;
-  state.selectedFileIds.clear();
+  fileOrder.cancel();
+  resetSelectionState();
 
   elements.albumGrid.replaceChildren();
   elements.albumGrid.classList.remove("hidden");
@@ -181,15 +220,12 @@ function renderAlbums() {
   elements.backButton.classList.add("hidden");
   elements.pageEyebrow.textContent = "GHOST";
   elements.pageTitle.textContent = "File Vault";
-  elements.folderSelectButton.textContent = "Select";
-  elements.folderSelectButton.setAttribute("aria-pressed", "false");
   elements.viewTitle.textContent = "Your folders";
 
   for (const album of state.albums) {
     elements.albumGrid.append(createAlbumCard(album));
   }
 }
-
 
 function createAlbumCard(album) {
   const count = state.files.filter(file => file.albumId === album.id).length;
@@ -238,8 +274,7 @@ function requestOpenAlbum(album) {
 
 function openAlbum(albumId) {
   state.activeAlbumId = albumId;
-  state.selectionMode = false;
-  state.selectedFileIds.clear();
+  resetSelectionState();
 
   const album = state.albums.find(item => item.id === albumId);
   elements.viewTitle.textContent = album?.name ?? "Folder";
@@ -249,13 +284,14 @@ function openAlbum(albumId) {
   elements.mainStats.classList.add("hidden");
   elements.albumView.classList.remove("hidden");
   elements.backButton.classList.remove("hidden");
-  elements.folderSelectButton.textContent = "Select";
-  elements.folderSelectButton.setAttribute("aria-pressed", "false");
   elements.searchInput.value = "";
+  elements.sortSelect.value = "custom";
   renderFiles();
 }
 
 function closeAlbum() {
+  fileOrder.cancel();
+  resetSelectionState();
   state.activeAlbumId = null;
   elements.pageTitle.textContent = "File Vault";
   renderAlbums();
@@ -270,21 +306,40 @@ function handleBack() {
 }
 
 function showVaultInfo() {
-  alert("Ghost File Vault v0.2.7\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
+  alert("Ghost File Vault v0.2.8\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
+}
+
+function currentFolderFiles() {
+  return state.files.filter(file => file.albumId === state.activeAlbumId);
+}
+
+function visibleFiles() {
+  const query = elements.searchInput.value.trim().toLowerCase();
+  const filtered = currentFolderFiles().filter(file =>
+    file.name.toLowerCase().includes(query)
+  );
+  return sortFiles(filtered, elements.sortSelect.value);
+}
+
+function canReorderFiles(files) {
+  return !state.selectionMode
+    && !elements.searchInput.value.trim()
+    && elements.sortSelect.value === "custom"
+    && files.length > 1;
 }
 
 function renderFiles() {
-  const query = elements.searchInput.value.trim().toLowerCase();
-  const filtered = state.files.filter(file =>
-    file.albumId === state.activeAlbumId
-    && file.name.toLowerCase().includes(query)
-  );
-  const files = sortFiles(filtered, elements.sortSelect.value);
-  updateFolderSummary(files.length);
+  fileOrder.cancel();
+  const files = visibleFiles();
+  const reorderable = canReorderFiles(files);
 
+  updateFolderSummary(files.length);
+  updateSelectionUi(files);
   elements.fileList.replaceChildren();
+  elements.fileList.classList.toggle("file-list--reorderable", reorderable);
 
   if (!files.length) {
+    const query = elements.searchInput.value.trim();
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.innerHTML = `
@@ -298,22 +353,31 @@ function renderFiles() {
   const fragment = document.createDocumentFragment();
 
   files.forEach((file, index) => {
-    const isSelected = state.selectedFileIds.has(file.id);
+    const selected = state.selectedFileIds.has(file.id);
     const card = createFileCard(file, {
       index,
-      selected: isSelected,
+      selected,
       selectionMode: state.selectionMode,
+      reorderable,
+      onActivate(event) {
+        if (state.selectionMode) {
+          toggleFileSelection(file.id);
+          return;
+        }
+
+        if (event.ctrlKey || event.metaKey || event.shiftKey) {
+          enterSelectionMode(file.id);
+          return;
+        }
+
+        openViewer(file.id);
+      },
+      onLongPress: state.selectionMode
+        ? null
+        : () => enterSelectionMode(file.id),
     });
 
-    card.addEventListener("click", () => {
-      if (state.selectionMode) {
-        toggleFileSelection(file.id);
-        return;
-      }
-
-      openViewer(file.id);
-    });
-
+    if (reorderable) fileOrder.bind(card, file);
     fragment.append(card);
   });
 
@@ -321,22 +385,49 @@ function renderFiles() {
 }
 
 function updateFolderSummary(visibleFileCount) {
-  const totalInFolder = state.files.filter(file => file.albumId === state.activeAlbumId).length;
+  if (state.selectionMode) {
+    const count = state.selectedFileIds.size;
+    elements.pageEyebrow.textContent = `${count} SELECTED`;
+    return;
+  }
+
+  const totalInFolder = currentFolderFiles().length;
   const count = elements.searchInput.value.trim() ? visibleFileCount : totalInFolder;
   const label = count === 1 ? "FILE" : "FILES";
   elements.pageEyebrow.textContent = `${count} ${label}`;
 }
 
-function toggleSelectionMode() {
-  state.selectionMode = !state.selectionMode;
+function resetSelectionState() {
+  state.selectionMode = false;
+  state.selectedFileIds.clear();
+  elements.app.classList.remove("is-selecting");
+  elements.folderAddFileButton.textContent = "+ File";
+  elements.folderAddFileButton.disabled = false;
+  elements.folderSelectButton.textContent = "Select";
+  elements.folderSelectButton.setAttribute("aria-pressed", "false");
+  elements.searchInput.disabled = false;
+  elements.sortSelect.disabled = false;
+  elements.vaultNav.classList.remove("hidden");
+  elements.bulkActions.classList.add("hidden");
+}
 
-  if (!state.selectionMode) {
-    state.selectedFileIds.clear();
-  }
-
-  elements.folderSelectButton.textContent = state.selectionMode ? "Done" : "Select";
-  elements.folderSelectButton.setAttribute("aria-pressed", String(state.selectionMode));
+function enterSelectionMode(initialFileId = null) {
+  state.selectionMode = true;
+  if (initialFileId) state.selectedFileIds.add(initialFileId);
   renderFiles();
+}
+
+function exitSelectionMode({ render = true } = {}) {
+  resetSelectionState();
+  if (render) renderFiles();
+}
+
+function toggleSelectionMode() {
+  if (state.selectionMode) {
+    exitSelectionMode();
+  } else {
+    enterSelectionMode();
+  }
 }
 
 function toggleFileSelection(fileId) {
@@ -345,12 +436,62 @@ function toggleFileSelection(fileId) {
   } else {
     state.selectedFileIds.add(fileId);
   }
+  renderFiles();
+}
 
-  elements.folderSelectButton.textContent = state.selectedFileIds.size
-    ? `${state.selectedFileIds.size} selected`
-    : "Done";
+function handleFolderPrimaryAction() {
+  if (!state.selectionMode) {
+    elements.fileInput.click();
+    return;
+  }
+
+  const files = visibleFiles();
+  const allSelected = files.length > 0
+    && files.every(file => state.selectedFileIds.has(file.id));
+
+  if (allSelected) {
+    state.selectedFileIds.clear();
+  } else {
+    files.forEach(file => state.selectedFileIds.add(file.id));
+  }
 
   renderFiles();
+}
+
+function selectedFiles() {
+  return visibleFiles().filter(file => state.selectedFileIds.has(file.id));
+}
+
+function updateSelectionUi(files) {
+  if (!state.selectionMode) {
+    elements.app.classList.remove("is-selecting");
+    elements.folderAddFileButton.textContent = "+ File";
+    elements.folderAddFileButton.disabled = false;
+    elements.folderSelectButton.textContent = "Select";
+    elements.folderSelectButton.setAttribute("aria-pressed", "false");
+    elements.searchInput.disabled = false;
+    elements.sortSelect.disabled = false;
+    elements.vaultNav.classList.remove("hidden");
+    elements.bulkActions.classList.add("hidden");
+    return;
+  }
+
+  const count = state.selectedFileIds.size;
+  const allVisibleSelected = files.length > 0
+    && files.every(file => state.selectedFileIds.has(file.id));
+
+  elements.app.classList.add("is-selecting");
+  elements.folderAddFileButton.textContent = allVisibleSelected ? "Clear all" : "Select all";
+  elements.folderAddFileButton.disabled = files.length === 0;
+  elements.folderSelectButton.textContent = "Cancel";
+  elements.folderSelectButton.setAttribute("aria-pressed", "true");
+  elements.searchInput.disabled = true;
+  elements.sortSelect.disabled = true;
+  elements.vaultNav.classList.add("hidden");
+  elements.bulkActions.classList.remove("hidden");
+  elements.bulkMoveButton.disabled = count === 0;
+  elements.bulkDeleteButton.disabled = count === 0;
+  updateBulkPinButton(selectedFiles());
 }
 
 function handleFileSelection(event) {
@@ -396,20 +537,21 @@ function handleFileSelection(event) {
 async function savePendingUploads(albumId) {
   const uploads = state.pendingUploads;
   state.pendingUploads = [];
+  const orders = fileOrder.prependOrders(state.files, albumId, uploads.length);
+  const timestamp = Date.now();
+  const records = uploads.map((file, index) => ({
+    id: createId("file"),
+    albumId,
+    name: file.name,
+    type: file.type || "application/octet-stream",
+    size: file.size,
+    lastModified: file.lastModified,
+    createdAt: timestamp + index,
+    fileOrder: orders[index],
+    blob: file,
+  }));
 
-  for (const file of uploads) {
-    await putFile({
-      id: createId("file"),
-      albumId,
-      name: file.name,
-      type: file.type || "application/octet-stream",
-      size: file.size,
-      lastModified: file.lastModified,
-      createdAt: Date.now(),
-      blob: file,
-    });
-  }
-
+  await putFiles(records);
   await refreshState();
 
   if (state.activeAlbumId) {
@@ -457,18 +599,22 @@ function albumIcon(album) {
   return "📁";
 }
 
-function renderAlbumPicker(container, selectAlbum) {
+function renderAlbumPicker(container, selectAlbum, options = {}) {
+  const disabledAlbumIds = new Set(options.disabledAlbumIds ?? []);
   container.replaceChildren();
 
   for (const album of state.albums) {
+    const disabled = disabledAlbumIds.has(album.id);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "picker-button";
+    button.disabled = disabled;
     button.innerHTML = `
       <span aria-hidden="true">${albumIcon(album)}</span>
       <strong>${escapeHtml(album.name)}</strong>
+      ${disabled ? '<span class="picker-button__note">Current</span>' : ""}
     `;
-    button.addEventListener("click", () => selectAlbum(album.id));
+    if (!disabled) button.addEventListener("click", () => selectAlbum(album.id));
     container.append(button);
   }
 }
@@ -588,14 +734,11 @@ async function renameActiveFile(event) {
   }
 
   const sourceId = file.sourceFileId || file.id;
-  const relatedFiles = state.files.filter(item =>
-    item.id === sourceId || item.sourceFileId === sourceId
-  );
+  const relatedFiles = state.files
+    .filter(item => item.id === sourceId || item.sourceFileId === sourceId)
+    .map(item => ({ ...item, name }));
 
-  for (const relatedFile of relatedFiles) {
-    await putFile({ ...relatedFile, name });
-  }
-
+  await putFiles(relatedFiles);
   elements.renameDialog.close();
   await refreshState();
 
@@ -608,14 +751,28 @@ async function renameActiveFile(event) {
 function pinnedCopyFor(file) {
   const sourceId = file.sourceFileId || file.id;
   return state.files.find(item =>
-    item.albumId === "pinned" &&
-    (item.id === file.id || item.sourceFileId === sourceId)
+    item.albumId === PINNED_ALBUM_ID
+    && (item.id === file.id || item.sourceFileId === sourceId)
   );
 }
 
+function isDirectPinnedFile(file) {
+  return file.albumId === PINNED_ALBUM_ID && !file.sourceFileId;
+}
+
+function isFilePinned(file) {
+  return isDirectPinnedFile(file) || Boolean(pinnedCopyFor(file));
+}
+
+function removablePinnedCopyFor(file) {
+  if (isDirectPinnedFile(file)) return null;
+  if (file.albumId === PINNED_ALBUM_ID && file.sourceFileId) return file;
+  return pinnedCopyFor(file) ?? null;
+}
+
 function updatePinButton(file) {
-  const pinned = Boolean(pinnedCopyFor(file));
-  const storedDirectlyInPinned = file.albumId === "pinned" && !file.sourceFileId;
+  const pinned = isFilePinned(file);
+  const storedDirectlyInPinned = isDirectPinnedFile(file);
 
   elements.pinFileButton.classList.toggle("is-active", pinned);
   elements.pinFileButton.disabled = storedDirectlyInPinned;
@@ -627,30 +784,39 @@ function updatePinButton(file) {
       : "Pin";
 }
 
+function updateBulkPinButton(files) {
+  const allPinned = files.length > 0 && files.every(isFilePinned);
+  const removable = files.some(file => Boolean(removablePinnedCopyFor(file)));
+  const allDirect = files.length > 0 && files.every(isDirectPinnedFile);
+
+  if (allDirect) {
+    elements.bulkPinButton.dataset.mode = "none";
+    elements.bulkPinLabel.textContent = "Pinned";
+    elements.bulkPinButton.disabled = true;
+    return;
+  }
+
+  const mode = allPinned && removable ? "unpin" : "pin";
+  elements.bulkPinButton.dataset.mode = mode;
+  elements.bulkPinLabel.textContent = mode === "unpin" ? "Unpin" : "Pin";
+  elements.bulkPinButton.disabled = files.length === 0
+    || (mode === "pin" && files.every(isFilePinned));
+}
+
 async function togglePinnedFile() {
   const file = activeFile();
   if (!file) return;
 
-  const pinnedCopy = pinnedCopyFor(file);
+  const pinnedCopy = removablePinnedCopyFor(file);
 
   if (pinnedCopy) {
-    if (file.albumId === "pinned" && file.id === pinnedCopy.id) {
-      if (!file.sourceFileId) {
-        showToast("This file is stored directly in Pinned");
-        return;
-      }
+    await deleteFile(pinnedCopy.id);
 
-      await deleteFile(file.id);
+    if (file.id === pinnedCopy.id) {
       await closeViewer();
-      await refreshState();
-      renderFiles();
-      showToast("Removed from Pinned");
-      return;
     }
 
-    await deleteFile(pinnedCopy.id);
     await refreshState();
-
     const refreshedFile = activeFile();
     if (refreshedFile) updateViewerDetails(refreshedFile);
     renderFiles();
@@ -658,21 +824,73 @@ async function togglePinnedFile() {
     return;
   }
 
+  if (isDirectPinnedFile(file)) {
+    showToast("This file is stored directly in Pinned");
+    return;
+  }
+
+  const [fileOrderValue] = fileOrder.prependOrders(state.files, PINNED_ALBUM_ID, 1);
   await putFile({
     ...file,
     id: createId("file"),
-    albumId: "pinned",
+    albumId: PINNED_ALBUM_ID,
     sourceFileId: file.sourceFileId || file.id,
     sourceAlbumId: file.sourceAlbumId || file.albumId,
     createdAt: Date.now(),
+    fileOrder: fileOrderValue,
   });
 
   await refreshState();
-
   const refreshedFile = activeFile();
   if (refreshedFile) updateViewerDetails(refreshedFile);
   renderFiles();
   showToast("Added to Pinned");
+}
+
+async function bulkTogglePinned() {
+  const files = selectedFiles();
+  if (!files.length) return;
+
+  const mode = elements.bulkPinButton.dataset.mode;
+
+  if (mode === "unpin") {
+    const ids = [...new Set(
+      files.map(removablePinnedCopyFor).filter(Boolean).map(file => file.id)
+    )];
+    if (!ids.length) return;
+
+    await deleteFiles(ids);
+    await refreshState();
+    exitSelectionMode({ render: false });
+    renderFiles();
+    showToast(`${ids.length} file${ids.length === 1 ? "" : "s"} removed from Pinned`);
+    return;
+  }
+
+  const filesToPin = files.filter(file => !isFilePinned(file));
+  if (!filesToPin.length) return;
+
+  const orders = fileOrder.prependOrders(
+    state.files,
+    PINNED_ALBUM_ID,
+    filesToPin.length
+  );
+  const timestamp = Date.now();
+  const copies = filesToPin.map((file, index) => ({
+    ...file,
+    id: createId("file"),
+    albumId: PINNED_ALBUM_ID,
+    sourceFileId: file.sourceFileId || file.id,
+    sourceAlbumId: file.sourceAlbumId || file.albumId,
+    createdAt: timestamp + index,
+    fileOrder: orders[index],
+  }));
+
+  await putFiles(copies);
+  await refreshState();
+  exitSelectionMode({ render: false });
+  renderFiles();
+  showToast(`${copies.length} file${copies.length === 1 ? "" : "s"} added to Pinned`);
 }
 
 function downloadActiveFile() {
@@ -692,53 +910,150 @@ function downloadActiveFile() {
 function openDeleteDialog() {
   const file = activeFile();
   if (!file) return;
+  openDeleteDialogFor([file.id]);
+}
 
-  elements.deleteFileMessage.textContent = `“${file.name}” will be permanently removed from Ghost.`;
+function openBulkDeleteDialog() {
+  const ids = selectedFiles().map(file => file.id);
+  if (!ids.length) return;
+  openDeleteDialogFor(ids);
+}
+
+function openDeleteDialogFor(fileIds) {
+  state.pendingDeleteFileIds = [...new Set(fileIds)];
+  const files = state.pendingDeleteFileIds
+    .map(id => state.files.find(file => file.id === id))
+    .filter(Boolean);
+  if (!files.length) return;
+
+  if (files.length === 1) {
+    elements.deleteDialogTitle.textContent = "Delete this file?";
+    elements.deleteFileMessage.textContent = `“${files[0].name}” will be permanently removed from Ghost.`;
+  } else {
+    elements.deleteDialogTitle.textContent = `Delete ${files.length} files?`;
+    elements.deleteFileMessage.textContent = "The selected files will be permanently removed from Ghost.";
+  }
+
   elements.deleteDialog.showModal();
 }
 
-async function removeActiveFile(event) {
+function cancelPendingDelete() {
+  state.pendingDeleteFileIds = [];
+  elements.deleteDialog.close();
+}
+
+async function removePendingFiles(event) {
   event.preventDefault();
 
-  const file = activeFile();
-  if (!file) return;
+  const requestedFiles = state.pendingDeleteFileIds
+    .map(id => state.files.find(file => file.id === id))
+    .filter(Boolean);
+  if (!requestedFiles.length) return;
 
+  const ids = new Set();
+  for (const file of requestedFiles) {
+    ids.add(file.id);
+    if (!file.sourceFileId) {
+      state.files
+        .filter(item => item.sourceFileId === file.id)
+        .forEach(item => ids.add(item.id));
+    }
+  }
+
+  state.pendingDeleteFileIds = [];
   elements.deleteDialog.close();
-  await deleteFile(file.id);
-  await closeViewer();
+  await deleteFiles([...ids]);
+
+  if (elements.viewerDialog.open) await closeViewer();
   await refreshState();
+  exitSelectionMode({ render: false });
   renderFiles();
-  showToast("File deleted");
+  showToast(`${requestedFiles.length} file${requestedFiles.length === 1 ? "" : "s"} deleted`);
 }
 
 function openMoveDialog() {
   const file = activeFile();
   if (!file) return;
+  openMoveDialogFor([file.id]);
+}
 
-  renderAlbumPicker(elements.movePickerList, albumId => requestMoveFile(file, albumId));
+function openBulkMoveDialog() {
+  const ids = selectedFiles().map(file => file.id);
+  if (!ids.length) return;
+  openMoveDialogFor(ids);
+}
+
+function openMoveDialogFor(fileIds) {
+  state.pendingMoveFileIds = [...new Set(fileIds)];
+  const count = state.pendingMoveFileIds.length;
+  if (!count) return;
+
+  elements.moveDialogEyebrow.textContent = count === 1 ? "MOVE FILE" : `MOVE ${count} FILES`;
+  elements.moveDialogTitle.textContent = "Choose a folder";
+  renderAlbumPicker(
+    elements.movePickerList,
+    albumId => requestMoveFiles(state.pendingMoveFileIds, albumId),
+    { disabledAlbumIds: [state.activeAlbumId] }
+  );
   elements.moveDialog.showModal();
 }
 
-function requestMoveFile(file, albumId) {
+function requestMoveFiles(fileIds, albumId) {
   const destination = state.albums.find(album => album.id === albumId);
 
   if (destination?.locked) {
-    state.pendingPrivateAction = () => moveFile(file, albumId);
+    state.pendingPrivateAction = () => moveFiles(fileIds, albumId);
     elements.moveDialog.close();
     openPinDialog();
     return;
   }
 
-  moveFile(file, albumId);
+  moveFiles(fileIds, albumId);
 }
 
-async function moveFile(file, albumId) {
-  await putFile({ ...file, albumId });
+function movedFileRecord(file, albumId, fileOrderValue) {
+  const updated = { ...file, albumId, fileOrder: fileOrderValue };
+
+  if (file.albumId === PINNED_ALBUM_ID
+    && file.sourceFileId
+    && albumId !== PINNED_ALBUM_ID) {
+    delete updated.sourceFileId;
+    delete updated.sourceAlbumId;
+  }
+
+  return updated;
+}
+
+async function moveFiles(fileIds, albumId) {
+  const files = fileIds
+    .map(id => state.files.find(file => file.id === id))
+    .filter(file => file && file.albumId !== albumId);
+  if (!files.length) {
+    elements.moveDialog.close();
+    return;
+  }
+
+  const orders = fileOrder.prependOrders(state.files, albumId, files.length);
+  const updates = new Map();
+
+  files.forEach((file, index) => {
+    updates.set(file.id, movedFileRecord(file, albumId, orders[index]));
+
+    if (!file.sourceFileId) {
+      state.files
+        .filter(item => item.sourceFileId === file.id)
+        .forEach(copy => updates.set(copy.id, { ...copy, sourceAlbumId: albumId }));
+    }
+  });
+
+  await putFiles([...updates.values()]);
+  state.pendingMoveFileIds = [];
   elements.moveDialog.close();
-  await closeViewer();
+  if (elements.viewerDialog.open) await closeViewer();
   await refreshState();
+  exitSelectionMode({ render: false });
   renderFiles();
-  showToast("File moved");
+  showToast(`${files.length} file${files.length === 1 ? "" : "s"} moved`);
 }
 
 function hideApp() {

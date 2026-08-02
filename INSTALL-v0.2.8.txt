@@ -1,0 +1,23 @@
+GHOST FILES VAULT v0.2.8 — INSTALL
+
+1. Extract this ZIP.
+2. Open your real project folder:
+   C:\Users\joeba\Documents\GitHub\Ghost-Files-Vault
+3. Copy index.html plus the css and js folders from this update into the project root.
+4. Choose "Replace the files in the destination".
+5. Windows will add the new file: js\file-order.js
+6. Refresh Chrome with Ctrl + F5.
+
+FILES REPLACED
+- index.html
+- css\files.css
+- js\app.js
+- js\db.js
+- js\file-card.js
+- js\utils.js
+
+NEW FILE
+- js\file-order.js
+
+SUGGESTED GITHUB COMMIT
+feat(file-vault): add bulk operations and file ordering v0.2.8

@@ -11,7 +11,7 @@
 </head>
 <body>
   <main class="app" id="app">
-    <!-- Ghost Files Vault v0.2.5: Folder Organisation -->
+    <!-- Ghost Files Vault v0.2.8: Bulk Operations and File Ordering -->
     <header class="topbar">
       <button id="back-button" class="icon-btn topbar__back hidden" type="button" aria-label="Back">←</button>
       <div class="topbar__title">
@@ -55,6 +55,7 @@
           <input id="search-input" class="search-input" type="search"
             placeholder="Search this folder" autocomplete="off">
           <select id="sort-select" class="sort-select" aria-label="Sort files">
+            <option value="custom">Custom order</option>
             <option value="newest">Newest</option>
             <option value="oldest">Oldest</option>
             <option value="name-asc">Name A–Z</option>
@@ -74,10 +75,41 @@
     </section>
   </main>
 
-  <nav class="vault-nav" aria-label="Ghost navigation">
+  <nav class="vault-nav" id="vault-nav" aria-label="Ghost navigation">
     <button id="vault-home-button" type="button" aria-label="Home"><img src="assets/home.png" alt=""></button>
     <button id="hide-button" type="button" aria-label="Hide"><img src="assets/hide.png" alt=""></button>
     <button id="vault-settings-button" type="button" aria-label="Settings"><img src="assets/settings.png" alt=""></button>
+  </nav>
+
+  <nav class="bulk-action-bar hidden" id="bulk-actions"
+    aria-label="Selected file actions">
+    <button class="bulk-action" id="bulk-pin-button" type="button" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 17v5" />
+        <path d="M5 3l14 14" />
+        <path d="m8 6 8 8-3 3-8-8Z" />
+      </svg>
+      <span id="bulk-pin-label">Pin</span>
+    </button>
+
+    <button class="bulk-action" id="bulk-move-button" type="button" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+        <path d="m10 14 2-2 2 2M12 12v5" />
+      </svg>
+      <span>Move</span>
+    </button>
+
+    <button class="bulk-action bulk-action--danger" id="bulk-delete-button"
+      type="button" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16" />
+        <path d="M9 7V4h6v3" />
+        <path d="m6 7 1 13h10l1-13" />
+        <path d="M10 11v5M14 11v5" />
+      </svg>
+      <span>Delete</span>
+    </button>
   </nav>
 
   <dialog class="ghost-dialog" id="album-picker-dialog">
@@ -237,7 +269,7 @@
       <div class="dialog-card__header dialog-card__header--simple">
         <div>
           <p class="eyebrow eyebrow--danger">DELETE</p>
-          <h2>Delete this file?</h2>
+          <h2 id="delete-dialog-title">Delete this file?</h2>
           <p class="dialog-description" id="delete-file-message">
             This action permanently removes the selected file from Ghost.
           </p>
@@ -255,8 +287,8 @@
     <form method="dialog" class="dialog-card">
       <div class="dialog-card__header">
         <div>
-          <p class="eyebrow">MOVE FILE</p>
-          <h2>Choose a folder</h2>
+          <p class="eyebrow" id="move-dialog-eyebrow">MOVE FILE</p>
+          <h2 id="move-dialog-title">Choose a folder</h2>
         </div>
         <button class="icon-button" value="cancel" aria-label="Close">×</button>
       </div>

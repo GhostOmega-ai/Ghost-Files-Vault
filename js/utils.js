@@ -64,6 +64,16 @@ export function sortFiles(files, mode) {
   const copy = [...files];
 
   switch (mode) {
+    case "custom":
+      return copy.sort((a, b) => {
+        const firstOrder = Number.isFinite(a.fileOrder)
+          ? a.fileOrder
+          : Number.MAX_SAFE_INTEGER;
+        const secondOrder = Number.isFinite(b.fileOrder)
+          ? b.fileOrder
+          : Number.MAX_SAFE_INTEGER;
+        return firstOrder - secondOrder || b.createdAt - a.createdAt;
+      });
     case "oldest":
       return copy.sort((a, b) => a.createdAt - b.createdAt);
     case "name-asc":
