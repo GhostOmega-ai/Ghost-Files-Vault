@@ -1,0 +1,13 @@
+GHOST FILES VAULT v0.2.6 INSTALL
+
+1. Extract this ZIP.
+2. Open your real project:
+   C:\Users\joeba\Documents\GitHub\Ghost-Files-Vault
+3. Copy:
+   - js\document-viewer.js
+   - js\viewer.js
+   - js\app.js
+   - css\files.css
+4. Replace matching files when Windows asks.
+5. document-viewer.js is new: add it to the existing js folder.
+6. Refresh Chrome with Ctrl + F5.

@@ -1,3 +1,14 @@
+const fullDateFormatter = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+const compactDateFormatter = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+});
+
 export function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -7,11 +18,33 @@ export function formatBytes(bytes) {
 }
 
 export function formatDate(timestamp) {
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(timestamp));
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? "Unknown date" : fullDateFormatter.format(date);
+}
+
+export function formatRelativeDate(timestamp, referenceTimestamp = Date.now()) {
+  const date = new Date(timestamp);
+  const reference = new Date(referenceTimestamp);
+
+  if (Number.isNaN(date.getTime()) || Number.isNaN(reference.getTime())) {
+    return "Unknown date";
+  }
+
+  const dateDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const referenceDay = Date.UTC(
+    reference.getFullYear(),
+    reference.getMonth(),
+    reference.getDate()
+  );
+  const dayDifference = Math.round((referenceDay - dateDay) / 86_400_000);
+
+  if (dayDifference === 0) return "Today";
+  if (dayDifference === 1) return "Yesterday";
+  if (dayDifference > 1 && dayDifference < 7) return `${dayDifference} days ago`;
+
+  return date.getFullYear() === reference.getFullYear()
+    ? compactDateFormatter.format(date)
+    : fullDateFormatter.format(date);
 }
 
 export function createId(prefix = "item") {

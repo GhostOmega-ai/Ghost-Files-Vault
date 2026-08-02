@@ -7,7 +7,9 @@ import {
   deleteFile,
   getSetting,
 } from "./db.js";
-import { fileIcon, fileTypeLabel, renderPreview, releasePreview } from "./viewer.js";
+import { createFileCard } from "./file-card.js";
+import { fileTypeLabel } from "./file-types.js";
+import { renderPreview, releasePreview } from "./viewer.js";
 import {
   createFolderOrderController,
   PINNED_ALBUM_ID,
@@ -268,14 +270,14 @@ function handleBack() {
 }
 
 function showVaultInfo() {
-  alert("Ghost File Vault v0.2.5\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
+  alert("Ghost File Vault v0.2.7\n\nFiles are stored locally in this browser using IndexedDB. This development build is not encrypted yet.");
 }
 
 function renderFiles() {
   const query = elements.searchInput.value.trim().toLowerCase();
   const filtered = state.files.filter(file =>
-    file.albumId === state.activeAlbumId &&
-    file.name.toLowerCase().includes(query)
+    file.albumId === state.activeAlbumId
+    && file.name.toLowerCase().includes(query)
   );
   const files = sortFiles(filtered, elements.sortSelect.value);
   updateFolderSummary(files.length);
@@ -293,23 +295,17 @@ function renderFiles() {
     return;
   }
 
-  for (const file of files) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "file-card";
-    button.innerHTML = `
-      <span class="file-card__icon" aria-hidden="true">${fileIcon(file)}</span>
-      <span>
-        <span class="file-card__name">${escapeHtml(file.name)}</span>
-        <span class="file-card__meta">${formatBytes(file.size)} · ${formatDate(file.createdAt)}</span>
-      </span>
-      <span class="file-card__chevron" aria-hidden="true">›</span>
-    `;
-    const isSelected = state.selectedFileIds.has(file.id);
-    button.classList.toggle("file-card--selected", isSelected);
-    button.setAttribute("aria-pressed", String(isSelected));
+  const fragment = document.createDocumentFragment();
 
-    button.addEventListener("click", () => {
+  files.forEach((file, index) => {
+    const isSelected = state.selectedFileIds.has(file.id);
+    const card = createFileCard(file, {
+      index,
+      selected: isSelected,
+      selectionMode: state.selectionMode,
+    });
+
+    card.addEventListener("click", () => {
       if (state.selectionMode) {
         toggleFileSelection(file.id);
         return;
@@ -318,8 +314,10 @@ function renderFiles() {
       openViewer(file.id);
     });
 
-    elements.fileList.append(button);
-  }
+    fragment.append(card);
+  });
+
+  elements.fileList.append(fragment);
 }
 
 function updateFolderSummary(visibleFileCount) {
@@ -504,11 +502,13 @@ async function openViewer(fileId) {
 
   state.activeFileId = fileId;
   updateViewerDetails(file);
-  await renderPreview(elements.viewerBody, file);
 
+  const preview = renderPreview(elements.viewerBody, file);
   elements.viewerDialog.classList.remove("is-closing");
   elements.viewerDialog.showModal();
   requestAnimationFrame(() => elements.viewerDialog.classList.add("is-open"));
+
+  await preview;
 }
 
 function updateViewerDetails(file) {

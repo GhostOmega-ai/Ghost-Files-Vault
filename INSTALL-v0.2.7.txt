@@ -1,0 +1,13 @@
+Ghost Files Vault v0.2.7 — Premium File Cards
+
+1. Extract this ZIP.
+2. Open your local project:
+   C:\Users\joeba\Documents\GitHub\Ghost-Files-Vault
+3. Copy the extracted css and js folders into the project root.
+4. Choose "Replace the files in the destination" when Windows asks.
+5. The two new JavaScript files will be added automatically:
+   js\file-card.js
+   js\file-types.js
+6. Refresh Ghost in Chrome with Ctrl + F5.
+
+No index.html replacement is required.

@@ -4,8 +4,9 @@ export const PINNED_ALBUM_ID = "pinned";
 export const PRIVATE_ALBUM_ID = "private";
 
 const ORDER_SETTING_KEY = "albumOrder";
-const FLIP_DURATION = 260;
-const SWAP_COOLDOWN = 140;
+const FLIP_DURATION = 230;
+const SETTLE_DURATION = 210;
+const SWAP_LOCK_DURATION = FLIP_DURATION;
 
 function sameStringArray(first, second) {
   return first.length === second.length &&
@@ -14,6 +15,17 @@ function sameStringArray(first, second) {
 
 function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function swapCards(firstCard, secondCard) {
+  const parent = firstCard.parentNode;
+  if (!parent || parent !== secondCard.parentNode || firstCard === secondCard) return;
+
+  const marker = document.createComment("ghost-folder-swap");
+  parent.insertBefore(marker, firstCard);
+  parent.insertBefore(firstCard, secondCard);
+  parent.insertBefore(secondCard, marker);
+  marker.remove();
 }
 
 export function createFolderOrderController({
@@ -93,7 +105,10 @@ export function createFolderOrderController({
     handle.className = "album-drag-handle";
     handle.dataset.albumId = album.id;
     handle.setAttribute("aria-label", `Move ${album.name} folder`);
-    handle.setAttribute("title", "Drag to reorder. Arrow keys also move this folder.");
+    handle.setAttribute(
+      "title",
+      "Drag directly over another custom folder to swap their positions."
+    );
     handle.innerHTML = `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6 8h12M6 12h12M6 16h12" />
@@ -141,11 +156,11 @@ export function createFolderOrderController({
 
       card.getAnimations().forEach(animation => animation.cancel());
       card.animate([
-        { transform: `translate3d(${offsetX}px, ${offsetY}px, 0)` },
-        { transform: "translate3d(0, 0, 0)" },
+        { transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(.99)` },
+        { transform: "translate3d(0, 0, 0) scale(1)" },
       ], {
         duration: FLIP_DURATION,
-        easing: "cubic-bezier(.2,.8,.2,1)",
+        easing: "cubic-bezier(.22,1,.36,1)",
       });
     }
 
@@ -162,7 +177,11 @@ export function createFolderOrderController({
 
   function createDragGhost(card, bounds) {
     const ghost = card.cloneNode(true);
-    ghost.classList.remove("album-card--drag-origin", "album-card--swap-target");
+    ghost.classList.remove(
+      "album-card--drag-origin",
+      "album-card--swap-target",
+      "album-card--drop-complete"
+    );
     ghost.classList.add("album-card--drag-ghost");
     ghost.removeAttribute("data-album-id");
     ghost.setAttribute("aria-hidden", "true");
@@ -199,13 +218,20 @@ export function createFolderOrderController({
       handle,
       card,
       ghost,
-      offsetX: event.clientX - bounds.left,
-      offsetY: event.clientY - bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+      originLeft: bounds.left,
+      originTop: bounds.top,
+      startX: event.clientX,
+      startY: event.clientY,
       currentX: event.clientX,
       currentY: event.clientY,
       previousX: event.clientX,
+      translateX: 0,
+      translateY: 0,
       animationFrame: 0,
-      lastSwapAt: 0,
+      swapTimer: 0,
+      swapLockedUntil: 0,
       moved: false,
     };
 
@@ -239,70 +265,95 @@ export function createFolderOrderController({
       if (!dragSession) return;
       dragSession.animationFrame = 0;
       positionDragGhost();
-      reorderAtPointer();
+      swapAtDraggedCentre();
     });
   }
 
   function positionDragGhost() {
     if (!dragSession) return;
 
-    const left = dragSession.currentX - dragSession.offsetX;
-    const top = dragSession.currentY - dragSession.offsetY;
-    const movement = dragSession.currentX - dragSession.previousX;
-    const tilt = Math.max(-2.4, Math.min(2.4, movement * .18));
+    dragSession.translateX = dragSession.currentX - dragSession.startX;
+    dragSession.translateY = dragSession.currentY - dragSession.startY;
 
-    dragSession.ghost.style.left = `${left}px`;
-    dragSession.ghost.style.top = `${top}px`;
-    dragSession.ghost.style.transform = `rotate(${tilt}deg) scale(1.035)`;
+    const movement = dragSession.currentX - dragSession.previousX;
+    const tilt = Math.max(-1.6, Math.min(1.6, movement * .1));
+
+    dragSession.ghost.style.transform = `translate3d(${dragSession.translateX}px, ${dragSession.translateY}px, 0) rotate(${tilt}deg) scale(1.035)`;
     dragSession.previousX = dragSession.currentX;
   }
 
-  function reorderAtPointer() {
+  function draggedCentre() {
+    return {
+      x: dragSession.originLeft + dragSession.translateX + dragSession.width / 2,
+      y: dragSession.originTop + dragSession.translateY + dragSession.height / 2,
+    };
+  }
+
+  function findSwapTarget() {
+    if (!dragSession) return null;
+
+    const centre = draggedCentre();
+    const element = document.elementFromPoint(centre.x, centre.y);
+    const card = element?.closest?.(".album-card");
+
+    if (!card ||
+      card === dragSession.card ||
+      card.parentElement !== grid ||
+      card.dataset.reorderable !== "true") {
+      return null;
+    }
+
+    return card;
+  }
+
+  function scheduleSwapCheck() {
     if (!dragSession) return;
 
-    const pointedElement = document.elementFromPoint(
-      dragSession.currentX,
-      dragSession.currentY
-    );
-    const targetCard = pointedElement?.closest?.(
-      '.album-card[data-reorderable="true"]'
-    );
+    window.clearTimeout(dragSession.swapTimer);
+    const delay = Math.max(0, dragSession.swapLockedUntil - performance.now());
+    dragSession.swapTimer = window.setTimeout(() => {
+      if (!dragSession) return;
+      dragSession.swapTimer = 0;
+      swapAtDraggedCentre();
+    }, delay + 8);
+  }
 
-    if (!targetCard || targetCard === dragSession.card) return;
+  function swapAtDraggedCentre() {
+    if (!dragSession) return;
 
-    const bounds = targetCard.getBoundingClientRect();
-    const relativeX = (dragSession.currentX - bounds.left) / bounds.width;
-    const relativeY = (dragSession.currentY - bounds.top) / bounds.height;
-    const insideSwapZone =
-      relativeX >= .18 && relativeX <= .82 &&
-      relativeY >= .18 && relativeY <= .82;
-
-    if (!insideSwapZone || performance.now() - dragSession.lastSwapAt < SWAP_COOLDOWN) {
+    if (performance.now() < dragSession.swapLockedUntil) {
+      scheduleSwapCheck();
       return;
     }
 
-    const cards = reorderableCards();
-    const currentIndex = cards.indexOf(dragSession.card);
-    const targetIndex = cards.indexOf(targetCard);
-    if (currentIndex < 0 || targetIndex < 0 || currentIndex === targetIndex) return;
+    const targetCard = findSwapTarget();
+    if (!targetCard) return;
 
     const previousPositions = capturePositions();
-
-    if (targetIndex > currentIndex) {
-      targetCard.after(dragSession.card);
-    } else {
-      targetCard.before(dragSession.card);
-    }
+    swapCards(dragSession.card, targetCard);
 
     dragSession.moved = true;
-    dragSession.lastSwapAt = performance.now();
+    dragSession.swapLockedUntil = performance.now() + SWAP_LOCK_DURATION;
     animateFlip(previousPositions, targetCard);
+    scheduleSwapCheck();
   }
 
   function detachDragListeners() {
     window.removeEventListener("pointermove", handleDragMove);
     window.removeEventListener("pointerup", finishDrag);
     window.removeEventListener("pointercancel", finishDrag);
+  }
+
+  function pulseDropComplete(card) {
+    if (prefersReducedMotion()) return;
+
+    card.classList.remove("album-card--drop-complete");
+    void card.offsetWidth;
+    card.classList.add("album-card--drop-complete");
+    window.setTimeout(
+      () => card.classList.remove("album-card--drop-complete"),
+      SETTLE_DURATION + 80
+    );
   }
 
   function finishDrag(event) {
@@ -314,6 +365,7 @@ export function createFolderOrderController({
     const session = dragSession;
     detachDragListeners();
     if (session.animationFrame) cancelAnimationFrame(session.animationFrame);
+    window.clearTimeout(session.swapTimer);
 
     try {
       session.handle.releasePointerCapture?.(session.pointerId);
@@ -326,9 +378,13 @@ export function createFolderOrderController({
     document.body.classList.remove("album-reorder-active");
 
     const finalBounds = session.card.getBoundingClientRect();
+    const finalTranslateX = finalBounds.left - session.originLeft;
+    const finalTranslateY = finalBounds.top - session.originTop;
+
     const cleanup = () => {
       session.ghost.remove();
       session.card.classList.remove("album-card--drag-origin");
+      pulseDropComplete(session.card);
     };
 
     if (prefersReducedMotion()) {
@@ -336,12 +392,10 @@ export function createFolderOrderController({
     } else {
       session.ghost.classList.add("is-settling");
       requestAnimationFrame(() => {
-        session.ghost.style.left = `${finalBounds.left}px`;
-        session.ghost.style.top = `${finalBounds.top}px`;
-        session.ghost.style.transform = "rotate(0deg) scale(1)";
-        session.ghost.style.opacity = ".18";
+        session.ghost.style.transform = `translate3d(${finalTranslateX}px, ${finalTranslateY}px, 0) rotate(0deg) scale(1)`;
+        session.ghost.style.opacity = ".12";
       });
-      window.setTimeout(cleanup, 190);
+      window.setTimeout(cleanup, SETTLE_DURATION);
     }
 
     const moved = session.moved;
@@ -355,6 +409,7 @@ export function createFolderOrderController({
     const session = dragSession;
     detachDragListeners();
     if (session.animationFrame) cancelAnimationFrame(session.animationFrame);
+    window.clearTimeout(session.swapTimer);
     session.handle.classList.remove("is-dragging");
     session.card.classList.remove("album-card--drag-origin");
     session.ghost.remove();
@@ -415,12 +470,7 @@ export function createFolderOrderController({
 
     const previousPositions = capturePositions();
     const targetCard = cards[targetIndex];
-
-    if (targetIndex > currentIndex) {
-      targetCard.after(card);
-    } else {
-      targetCard.before(card);
-    }
+    swapCards(card, targetCard);
 
     animateFlip(previousPositions, targetCard);
     void persistFromDom();
